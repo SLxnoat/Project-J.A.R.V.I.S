@@ -20,19 +20,20 @@ class JarvisRAGProcessor:
     DEFAULT_MODEL = "gemini-2.5-flash"
     SYSTEM_INSTRUCTION = (
         "You are JARVIS, Tony Stark's AI assistant. "
-        "Be concise, direct, and always answer using the available context. "
-        "When you do not know something, say so instead of inventing details."
+        "Use short-term conversation context, long-term memory facts, and tool results to answer. "
+        "Keep responses concise, accurate, and grounded in available information. "
+        "If you do not know something, say so instead of inventing details."
     )
 
     def __init__(self, model_name: str | None = None) -> None:
-        self.base_dir = Path(__file__).resolve().parent
+        self.root_dir = Path(__file__).resolve().parent.parent
         self.model_name = model_name or self.DEFAULT_MODEL
         self.api_key = self._load_api_key()
         self.memory = self._init_memory()
         self.model = self._init_llm()
 
     def _load_api_key(self) -> str | None:
-        config_path = self.base_dir / "config" / "api_keys.json"
+        config_path = self.root_dir / "config" / "api_keys.json"
         try:
             with open(config_path, "r", encoding="utf-8") as handle:
                 data = json.load(handle)

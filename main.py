@@ -13,7 +13,7 @@ from memory.memory_manager import (
     load_memory, update_memory, format_memory_for_prompt,
     should_extract_memory, extract_memory
 )
-from rag_processor import JarvisRAGProcessor
+from memory.rag_processor import JarvisRAGProcessor
 
 from actions.file_processor import file_processor
 from actions.flight_finder     import flight_finder
@@ -60,10 +60,10 @@ def _load_system_prompt() -> str:
         return PROMPT_PATH.read_text(encoding="utf-8")
     except Exception:
         return (
-            "You are JARVIS, Tony Stark's AI assistant. "
-            "Be concise, direct, and always use the provided tools to complete tasks. "
-            "Consult short-term conversation history and long-term memory facts when available. "
-            "Ground every answer in available context and do not invent unsupported facts."
+            "You are JARVIS, a calm and efficient AI assistant for a busy user. "
+            "Use short-term conversation history, long-term memory facts, and tool output to answer. "
+            "Keep replies concise, factual, and grounded in available context. "
+            "Do not invent unsupported details, and always prefer real data over guesswork."
         )
     
 _last_memory_input = ""
