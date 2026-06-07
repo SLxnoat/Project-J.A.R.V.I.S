@@ -10,11 +10,14 @@ from uuid import uuid4
 try:
     import chromadb
     from chromadb.config import Settings
-    from chromadb.utils import embedding_functions
 except Exception:  # Jarvis: long-term vector store unavailable without chromadb
     chromadb = None
     Settings = None
-    embedding_functions = None
+
+try:
+    import google.generativeai as genai
+except Exception:  # Jarvis: Gemini embeddings unavailable without google.genai
+    genai = None
 
 
 def get_base_dir() -> Path:
@@ -27,6 +30,7 @@ BASE_DIR = get_base_dir()
 MEMORY_DIR = BASE_DIR / "jarvis_memory"
 SHORT_TERM_DB_PATH = MEMORY_DIR / "short_term.db"
 LONG_TERM_COLLECTION_NAME = "jarvis_long_term"
+EMBEDDING_MODEL = "text-embedding-004"
 
 
 class JarvisMemory:
@@ -38,9 +42,10 @@ class JarvisMemory:
         self._short_term_conn = None
         self._chroma_client = None
         self._chroma_collection = None
-        self._embedder = None
+        self._genai_client = None
 
         self._init_short_term_db()
+        self._init_genai_client()
         self._init_long_term_store()
 
     def _init_short_term_db(self) -> None:
@@ -66,6 +71,67 @@ class JarvisMemory:
             print(f"[Jarvis Memory] ⚠️ Failed to initialize short-term SQLite: {exc}")  # Jarvis: fallback to no short-term store
             self._short_term_conn = None
 
+    def _load_api_key(self) -> str | None:
+        api_path = BASE_DIR / "config" / "api_keys.json"
+        if not api_path.exists():
+            return None
+        try:
+            data = json.loads(api_path.read_text(encoding="utf-8"))
+            return data.get("gemini_api_key")
+        except Exception as exc:
+            print(f"[Jarvis Memory] ⚠️ Failed to load API key: {exc}")  # Jarvis: Gemini key load failed
+            return None
+
+    def _init_genai_client(self) -> None:
+        if genai is None:
+            self._genai_client = None
+            return
+
+        api_key = self._load_api_key()
+        if not api_key:
+            self._genai_client = None
+            return
+
+        try:
+            self._genai_client = genai.Client(api_key=api_key)
+        except Exception as exc:
+            print(f"[Jarvis Memory] ⚠️ Failed to initialize Gemini client: {exc}")  # Jarvis: embedding service unavailable
+            self._genai_client = None
+
+    def _embed_text(self, text: str) -> list[float] | None:
+        if self._genai_client is None:
+            return None
+
+        cleaned_text = (text or "").strip()
+        if not cleaned_text:
+            return None
+
+        try:
+            response = self._genai_client.models.embed_content(
+                model=EMBEDDING_MODEL,
+                contents=[cleaned_text],
+            )
+            embeddings = None
+            if hasattr(response, "embeddings"):
+                embeddings = response.embeddings
+            elif isinstance(response, dict):
+                embeddings = response.get("embeddings") or response.get("data")
+
+            if not embeddings:
+                return None
+
+            first_embedding = embeddings[0]
+            if isinstance(first_embedding, dict):
+                return first_embedding.get("embedding")
+            if hasattr(first_embedding, "embedding"):
+                return first_embedding.embedding
+            if isinstance(first_embedding, list):
+                return first_embedding
+            return None
+        except Exception as exc:
+            print(f"[Jarvis Memory] ⚠️ Failed to create embedding: {exc}")
+            return None
+
     def _create_chroma_client(self):
         if chromadb is None:
             raise ImportError("chromadb is not installed")
@@ -80,22 +146,17 @@ class JarvisMemory:
 
     def _init_long_term_store(self) -> None:
         try:
-            if chromadb is None or embedding_functions is None:
-                raise ImportError("chromadb or embedding utilities unavailable")
+            if chromadb is None:
+                raise ImportError("chromadb is not installed")
 
-            self._embedder = embedding_functions.SentenceTransformerEmbeddingFunction(
-                model_name="all-MiniLM-L6-v2"
-            )
             self._chroma_client = self._create_chroma_client()
             self._chroma_collection = self._chroma_client.get_or_create_collection(
                 name=LONG_TERM_COLLECTION_NAME,
-                embedding_function=self._embedder,
             )
         except Exception as exc:
             print(f"[Jarvis Memory] ⚠️ Failed to initialize long-term ChromaDB: {exc}")  # Jarvis: long-term recall is disabled
             self._chroma_client = None
             self._chroma_collection = None
-            self._embedder = None
 
     def save_interaction(self, role: str, content: str) -> bool:
         if self._short_term_conn is None:
@@ -157,7 +218,7 @@ class JarvisMemory:
             print(f"[Jarvis Memory] ⚠️ Failed to clear short-term memory: {exc}")  # Jarvis: cleanup failed
 
     def store_permanent_fact(self, fact_text: str, metadata: dict | None = None) -> list[str]:
-        if self._chroma_collection is None:
+        if self._chroma_collection is None or self._genai_client is None:
             return []
 
         text = (fact_text or "").strip()
@@ -165,11 +226,17 @@ class JarvisMemory:
             return []
 
         try:
+            embedding = self._embed_text(text)
+            if not embedding:
+                print("[Jarvis Memory] ⚠️ Failed to get embedding for permanent fact.")  # Jarvis: long-term store failed
+                return []
+
             item_id = str(uuid4())
             self._chroma_collection.add(
                 documents=[text],
                 metadatas=[metadata or {}],
                 ids=[item_id],
+                embeddings=[embedding],
             )
             return [item_id]
         except Exception as exc:
@@ -177,7 +244,7 @@ class JarvisMemory:
             return []
 
     def recall_relevant_facts(self, query_text: str, n_results: int = 3) -> list[dict]:
-        if self._chroma_collection is None:
+        if self._chroma_collection is None or self._genai_client is None:
             return []
 
         query = (query_text or "").strip()
@@ -185,8 +252,13 @@ class JarvisMemory:
             return []
 
         try:
+            embedding = self._embed_text(query)
+            if not embedding:
+                print("[Jarvis Memory] ⚠️ Failed to get embedding for query.")  # Jarvis: semantic recall failed
+                return []
+
             results = self._chroma_collection.query(
-                query_texts=[query],
+                query_embeddings=[embedding],
                 n_results=n_results,
                 include=["documents", "metadatas", "distances"],
             )
