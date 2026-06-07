@@ -61,7 +61,8 @@ def _load_system_prompt() -> str:
         return (
             "You are JARVIS, Tony Stark's AI assistant. "
             "Be concise, direct, and always use the provided tools to complete tasks. "
-            "Never simulate or guess results — always call the appropriate tool."
+            "Consult short-term conversation history and long-term memory facts when available. "
+            "Ground every answer in available context and do not invent unsupported facts."
         )
     
 _last_memory_input = ""
