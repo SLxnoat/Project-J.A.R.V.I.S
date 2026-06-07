@@ -1,0 +1,11 @@
+# Python environment and bytecode
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Virtual environment
+jarvis-env/
+
+# API keys
+config/api_keys.json
