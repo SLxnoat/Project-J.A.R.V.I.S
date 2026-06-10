@@ -28,6 +28,12 @@ BASE_DIR: Path = Path(__file__).resolve().parent.parent
 API_CONFIG_PATH: Path = BASE_DIR / "config" / "api_keys.json"
 SERPER_API_URL: str = "https://google.serper.dev/search"
 
+# Try to import playwright async API
+try:
+    from playwright.async_api import async_playwright
+    HAS_PLAYWRIGHT = True
+except ImportError:
+    HAS_PLAYWRIGHT = False
 
 def _get_api_key() -> str:
     """Load Gemini API key from config."""

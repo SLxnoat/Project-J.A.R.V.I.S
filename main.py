@@ -1,4 +1,5 @@
 import asyncio
+import os
 import threading
 import json
 import sys
@@ -8,6 +9,14 @@ from pathlib import Path
 import sounddevice as sd
 from google import genai
 from google.genai import types
+
+# Try to load .env configuration
+try:
+    from dotenv import load_dotenv
+    load_dotenv()  # Load from project root
+    HAS_DOTENV = True
+except ImportError:
+    HAS_DOTENV = False
 from ui import JarvisUI
 from memory.memory_manager import (
     load_memory, update_memory, format_memory_for_prompt,
@@ -50,9 +59,36 @@ RECEIVE_SAMPLE_RATE = 24000
 CHUNK_SIZE          = 1024
 
 
-def _get_api_key() -> str:
-    with open(API_CONFIG_PATH, "r", encoding="utf-8") as f:
-        return json.load(f)["gemini_api_key"]
+def _get_env_api_key(key_name: str) -> str | None:
+    """
+    Load API key from environment variable with fallback to JSON config.
+    Prioritizes .env file, then os.environ, then api_keys.json.
+    """
+    # First try environment variable (from .env or system)
+    value = os.getenv(key_name)
+    if value:
+        return value
+
+    # Fallback to JSON config if .env not available
+    if API_CONFIG_PATH.exists():
+        try:
+            data = json.loads(API_CONFIG_PATH.read_text(encoding="utf-8"))
+            key_map = {
+                "gemini_api_key": "GEMINI_API_KEY",
+                "openrouter_api_key": "OPENROUTER_API_KEY",
+                "serper_api_key": "SERPER_API_KEY",
+            }
+            if key_name in key_map:
+                return data.get(key_map[key_name])
+            return data.get(key_name.lower())
+        except Exception as exc:
+            print(f"[Main] ⚠️ Failed to load API key from JSON: {exc}")
+    return None
+
+
+def _get_api_key() -> str | None:
+    """Get Gemini API key from environment or JSON config."""
+    return _get_env_api_key("GEMINI_API_KEY")
 
 
 def _load_system_prompt() -> str:
