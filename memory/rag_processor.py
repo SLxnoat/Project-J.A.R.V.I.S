@@ -19,7 +19,7 @@ except Exception:
 class JarvisRAGProcessor:
     DEFAULT_MODEL = "gemini-2.5-flash"
     SYSTEM_INSTRUCTION = (
-        "You are JARVIS, Tony Stark's AI assistant. "
+        "You are JARVIS, AI assistant. "
         "Use short-term conversation context, long-term memory facts, and tool results to answer. "
         "Keep responses concise, accurate, and grounded in available information. "
         "If you do not know something, say so instead of inventing details."
