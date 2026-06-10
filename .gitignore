@@ -9,3 +9,7 @@ jarvis-env/
 
 # API keys
 config/api_keys.json
+
+.env
+jarvis_memory/chroma.sqlite3
+jarvis_memory/short_term.db
