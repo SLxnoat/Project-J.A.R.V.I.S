@@ -1,4 +1,8 @@
+# memory/memory_manager.py
+# Modernized with google-genai SDK (v1.0+) and .env configuration
+
 import json
+import os
 import re
 import sqlite3
 import sys
@@ -14,10 +18,19 @@ except Exception:  # Jarvis: long-term vector store unavailable without chromadb
     chromadb = None
     Settings = None
 
+# Modern google-genai SDK import (replaces deprecated google.generativeai)
 try:
-    import google.generativeai as genai
+    from google import genai
 except Exception:  # Jarvis: Gemini embeddings unavailable without google.genai
     genai = None
+
+# python-dotenv for .env file support
+try:
+    from dotenv import load_dotenv
+    HAS_DOTENV = True
+    load_dotenv()  # Load .env file from project root
+except ImportError:
+    HAS_DOTENV = False
 
 
 def get_base_dir() -> Path:
@@ -33,6 +46,35 @@ LONG_TERM_COLLECTION_NAME = "jarvis_long_term"
 EMBEDDING_MODEL = "text-embedding-004"
 
 
+def _get_env_api_key(key_name: str) -> str | None:
+    """
+    Load API key from environment variable with fallback to JSON config.
+    Prioritizes .env file, then os.environ, then api_keys.json.
+    """
+    # First try environment variable (from .env or system)
+    value = os.getenv(key_name)
+    if value:
+        return value
+
+    # Fallback to JSON config if .env not available
+    api_path = BASE_DIR / "config" / "api_keys.json"
+    if api_path.exists():
+        try:
+            data = json.loads(api_path.read_text(encoding="utf-8"))
+            # Map JSON keys to environment variable names
+            key_map = {
+                "gemini_api_key": "GEMINI_API_KEY",
+                "openrouter_api_key": "OPENROUTER_API_KEY",
+                "serper_api_key": "SERPER_API_KEY",
+            }
+            if key_name in key_map:
+                return data.get(key_map[key_name])
+            return data.get(key_name.lower())
+        except Exception as exc:
+            print(f"[Jarvis Memory] ⚠️ Failed to load API key from JSON: {exc}")  # Jarvis: JSON fallback failed
+    return None
+
+
 class JarvisMemory:
     def __init__(self) -> None:
         self.memory_dir = MEMORY_DIR
@@ -43,6 +85,7 @@ class JarvisMemory:
         self._chroma_client = None
         self._chroma_collection = None
         self._genai_client = None
+        self._api_key = None
 
         self._init_short_term_db()
         self._init_genai_client()
@@ -71,34 +114,35 @@ class JarvisMemory:
             print(f"[Jarvis Memory] ⚠️ Failed to initialize short-term SQLite: {exc}")  # Jarvis: fallback to no short-term store
             self._short_term_conn = None
 
-    def _load_api_key(self) -> str | None:
-        api_path = BASE_DIR / "config" / "api_keys.json"
-        if not api_path.exists():
-            return None
-        try:
-            data = json.loads(api_path.read_text(encoding="utf-8"))
-            return data.get("gemini_api_key")
-        except Exception as exc:
-            print(f"[Jarvis Memory] ⚠️ Failed to load API key: {exc}")  # Jarvis: Gemini key load failed
-            return None
-
     def _init_genai_client(self) -> None:
+        """
+        Initialize the modern google-genai SDK client.
+        Replaces deprecated google.generativeai.Client initialization.
+        """
         if genai is None:
             self._genai_client = None
             return
 
-        api_key = self._load_api_key()
-        if not api_key:
+        # Get API key from environment (prioritizing .env file)
+        self._api_key = _get_env_api_key("GEMINI_API_KEY")
+        if not self._api_key:
             self._genai_client = None
+            print("[Jarvis Memory] ⚠️ GEMINI_API_KEY not found")  # Jarvis: no API key available
             return
 
         try:
-            self._genai_client = genai.Client(api_key=api_key)
+            # Modern 2026 SDK Client initialization
+            self._genai_client = genai.Client(api_key=self._api_key)
+            print("[Jarvis Memory] ✅ Google GenAI SDK client initialized")  # Jarvis: Gemini SDK ready
         except Exception as exc:
             print(f"[Jarvis Memory] ⚠️ Failed to initialize Gemini client: {exc}")  # Jarvis: embedding service unavailable
             self._genai_client = None
 
     def _embed_text(self, text: str) -> list[float] | None:
+        """
+        Generate embeddings using the modern google-genai SDK.
+        Uses text-embedding-004 model with updated API format.
+        """
         if self._genai_client is None:
             return None
 
@@ -107,29 +151,28 @@ class JarvisMemory:
             return None
 
         try:
+            # Modern 2026 API format for text embeddings
             response = self._genai_client.models.embed_content(
                 model=EMBEDDING_MODEL,
                 contents=[cleaned_text],
             )
-            embeddings = None
-            if hasattr(response, "embeddings"):
-                embeddings = response.embeddings
-            elif isinstance(response, dict):
-                embeddings = response.get("embeddings") or response.get("data")
 
-            if not embeddings:
-                return None
+            # Extract embedding values from the response
+            if hasattr(response, "embeddings") and response.embeddings:
+                first_embedding = response.embeddings[0]
+                # Modern SDK returns values as a property
+                if hasattr(first_embedding, "values"):
+                    return first_embedding.values
+                if hasattr(first_embedding, "embedding"):
+                    return first_embedding.embedding
+                if isinstance(first_embedding, list):
+                    return first_embedding
 
-            first_embedding = embeddings[0]
-            if isinstance(first_embedding, dict):
-                return first_embedding.get("embedding")
-            if hasattr(first_embedding, "embedding"):
-                return first_embedding.embedding
-            if isinstance(first_embedding, list):
-                return first_embedding
+            print("[Jarvis Memory] ⚠️ Failed to extract embedding from response")  # Jarvis: embedding extraction failed
             return None
+
         except Exception as exc:
-            print(f"[Jarvis Memory] ⚠️ Failed to create embedding: {exc}")
+            print(f"[Jarvis Memory] ⚠️ Failed to create embedding: {exc}")  # Jarvis: embedding service unavailable
             return None
 
     def _create_chroma_client(self):

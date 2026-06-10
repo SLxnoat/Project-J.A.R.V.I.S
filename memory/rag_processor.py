@@ -1,14 +1,24 @@
+# memory/rag_processor.py
+# Updated with modern google-genai SDK and .env configuration support
+
 import json
+import os
 from pathlib import Path
 from typing import Any
 
+# Modern google-genai SDK import (v1.0+)
 try:
-    import google.generativeai as genai
+    from google import genai
 except ImportError:
-    try:
-        from google import genai
-    except Exception:
-        genai = None
+    genai = None
+
+# Try to load .env configuration
+try:
+    from dotenv import load_dotenv
+    load_dotenv()  # Load from project root
+    HAS_DOTENV = True
+except ImportError:
+    HAS_DOTENV = False
 
 try:
     import memory.memory_manager as memory_module
@@ -32,15 +42,36 @@ class JarvisRAGProcessor:
         self.memory = self._init_memory()
         self.model = self._init_llm()
 
-    def _load_api_key(self) -> str | None:
+    def _get_env_api_key(self, key_name: str) -> str | None:
+        """
+        Load API key from environment variable with fallback to JSON config.
+        Prioritizes .env file, then os.environ, then api_keys.json.
+        """
+        # First try environment variable (from .env or system)
+        value = os.getenv(key_name)
+        if value:
+            return value
+
+        # Fallback to JSON config if .env not available
         config_path = self.root_dir / "config" / "api_keys.json"
-        try:
-            with open(config_path, "r", encoding="utf-8") as handle:
-                data = json.load(handle)
-                return data.get("gemini_api_key")
-        except Exception as exc:
-            print(f"[Jarvis RAG] ⚠️ Could not load API key: {exc}")  # Sir, I failed to locate the Gemini API key
-            return None
+        if config_path.exists():
+            try:
+                data = json.loads(config_path.read_text(encoding="utf-8"))
+                key_map = {
+                    "gemini_api_key": "GEMINI_API_KEY",
+                    "openrouter_api_key": "OPENROUTER_API_KEY",
+                    "serper_api_key": "SERPER_API_KEY",
+                }
+                if key_name in key_map:
+                    return data.get(key_map[key_name])
+                return data.get(key_name.lower())
+            except Exception as exc:
+                print(f"[Jarvis RAG] ⚠️ Failed to load API key from JSON: {exc}")
+        return None
+
+    def _load_api_key(self) -> str | None:
+        """Load API key from environment or JSON config."""
+        return self._get_env_api_key("GEMINI_API_KEY")
 
     def _init_memory(self) -> Any:
         if memory_module is None:
@@ -54,6 +85,10 @@ class JarvisRAGProcessor:
             return None
 
     def _init_llm(self) -> Any:
+        """
+        Initialize the modern google-genai SDK client.
+        Replaces deprecated google.generativeai configuration.
+        """
         if genai is None:
             print("[Jarvis RAG] ⚠️ Google GenAI SDK is not installed.")  # Sir, I cannot access the language model
             return None
@@ -63,8 +98,10 @@ class JarvisRAGProcessor:
             return None
 
         try:
-            genai.configure(api_key=self.api_key)
-            return genai.GenerativeModel(model_name=self.model_name)
+            # Modern 2026 SDK Client initialization
+            self.client = genai.Client(api_key=self.api_key)
+            # Create model instance using the modern API
+            return self.client.models.generate_content
         except Exception as exc:
             print(f"[Jarvis RAG] ⚠️ Failed to initialize LLM: {exc}")  # Sir, I failed to create the Gemini model client
             return None
@@ -155,12 +192,23 @@ class JarvisRAGProcessor:
         return "\n".join(prompt_parts)
 
     def _generate_response(self, prompt: str) -> str | None:
+        """
+        Generate response using the modern google-genai SDK.
+        """
         if self.model is None:
             print("[Jarvis RAG] ⚠️ LLM client is unavailable.")  # Sir, I cannot generate a response without a model
             return None
 
         try:
-            response = self.model.generate_content(prompt)
+            # Modern API call format
+            response = self.model(
+                model=self.model_name,
+                contents=prompt,
+                config={
+                    "temperature": 0.7,
+                    "max_output_tokens": 1024,
+                },
+            )
             if not response or not getattr(response, "text", None):
                 return None
             return str(response.text).strip()

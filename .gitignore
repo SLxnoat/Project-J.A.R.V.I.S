@@ -21,3 +21,5 @@ chroma_db/
 
 # API keys
 config/api_keys.json
+
+.env
