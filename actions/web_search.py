@@ -1,24 +1,14 @@
 # web_search.py
 # Hybrid Omni-Search & Playwright Stealth Deep Scraper with ChromaDB RAG Integration
 # Replaces old OpenRouter LLM-based search with Serper API + async deep scraping
-# Uses .env configuration with python-dotenv support
 
 import asyncio
 import json
-import os
 import re
 from pathlib import Path
 from typing import Union
 
 import requests
-
-# python-dotenv for .env file support
-try:
-    from dotenv import load_dotenv
-    HAS_DOTENV = True
-    load_dotenv()  # Load .env from project root
-except ImportError:
-    HAS_DOTENV = False
 
 # Try to import playwright_stealth for bypassing anti-bot protections
 try:
@@ -38,37 +28,26 @@ BASE_DIR: Path = Path(__file__).resolve().parent.parent
 API_CONFIG_PATH: Path = BASE_DIR / "config" / "api_keys.json"
 SERPER_API_URL: str = "https://google.serper.dev/search"
 
+# Try to import playwright async API
+try:
+    from playwright.async_api import async_playwright
+    HAS_PLAYWRIGHT = True
+except ImportError:
+    HAS_PLAYWRIGHT = False
 
-def _get_env_api_key(key_name: str) -> str | None:
-    """
-    Load API key from environment variable with fallback to JSON config.
-    Prioritizes .env file, then os.environ, then api_keys.json.
-    """
-    # First try environment variable (from .env or system)
-    value = os.getenv(key_name)
-    if value:
-        return value
-
-    # Fallback to JSON config if .env not available
-    if API_CONFIG_PATH.exists():
-        try:
-            data = json.loads(API_CONFIG_PATH.read_text(encoding="utf-8"))
-            key_map = {
-                "gemini_api_key": "GEMINI_API_KEY",
-                "openrouter_api_key": "OPENROUTER_API_KEY",
-                "serper_api_key": "SERPER_API_KEY",
-            }
-            if key_name in key_map:
-                return data.get(key_map[key_name])
-            return data.get(key_name.lower())
-        except Exception as exc:
-            print(f"[WebSearch] ⚠️ Failed to load API key from JSON: {exc}")  # Jarvis: JSON fallback failed
-    return None
+def _get_api_key() -> str:
+    """Load Gemini API key from config."""
+    with open(API_CONFIG_PATH, "r", encoding="utf-8") as f:
+        return json.load(f)["gemini_api_key"]
 
 
 def _get_serper_api_key() -> str:
-    """Load Serper API key from environment, or fallback to JSON."""
-    return _get_env_api_key("SERPER_API_KEY") or ""
+    """Load Serper API key from config, or use fallback."""
+    try:
+        with open(API_CONFIG_PATH, "r", encoding="utf-8") as f:
+            return json.load(f).get("serper_api_key", "")
+    except Exception:
+        return ""
 
 
 def _serper_search(query: str, max_results: int = 3) -> list[dict]:
