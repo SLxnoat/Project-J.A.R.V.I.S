@@ -1,4 +1,5 @@
 import asyncio
+import os
 import threading
 import json
 import sys
@@ -8,11 +9,20 @@ from pathlib import Path
 import sounddevice as sd
 from google import genai
 from google.genai import types
+
+# Try to load .env configuration
+try:
+    from dotenv import load_dotenv
+    load_dotenv()  # Load from project root
+    HAS_DOTENV = True
+except ImportError:
+    HAS_DOTENV = False
 from ui import JarvisUI
 from memory.memory_manager import (
     load_memory, update_memory, format_memory_for_prompt,
     should_extract_memory, extract_memory
 )
+from memory.rag_processor import JarvisRAGProcessor
 
 from actions.file_processor import file_processor
 from actions.flight_finder     import flight_finder
@@ -49,9 +59,36 @@ RECEIVE_SAMPLE_RATE = 24000
 CHUNK_SIZE          = 1024
 
 
-def _get_api_key() -> str:
-    with open(API_CONFIG_PATH, "r", encoding="utf-8") as f:
-        return json.load(f)["gemini_api_key"]
+def _get_env_api_key(key_name: str) -> str | None:
+    """
+    Load API key from environment variable with fallback to JSON config.
+    Prioritizes .env file, then os.environ, then api_keys.json.
+    """
+    # First try environment variable (from .env or system)
+    value = os.getenv(key_name)
+    if value:
+        return value
+
+    # Fallback to JSON config if .env not available
+    if API_CONFIG_PATH.exists():
+        try:
+            data = json.loads(API_CONFIG_PATH.read_text(encoding="utf-8"))
+            key_map = {
+                "gemini_api_key": "GEMINI_API_KEY",
+                "openrouter_api_key": "OPENROUTER_API_KEY",
+                "serper_api_key": "SERPER_API_KEY",
+            }
+            if key_name in key_map:
+                return data.get(key_map[key_name])
+            return data.get(key_name.lower())
+        except Exception as exc:
+            print(f"[Main] ⚠️ Failed to load API key from JSON: {exc}")
+    return None
+
+
+def _get_api_key() -> str | None:
+    """Get Gemini API key from environment or JSON config."""
+    return _get_env_api_key("GEMINI_API_KEY")
 
 
 def _load_system_prompt() -> str:
@@ -59,9 +96,10 @@ def _load_system_prompt() -> str:
         return PROMPT_PATH.read_text(encoding="utf-8")
     except Exception:
         return (
-            "You are JARVIS, Tony Stark's AI assistant. "
-            "Be concise, direct, and always use the provided tools to complete tasks. "
-            "Never simulate or guess results — always call the appropriate tool."
+            "You are JARVIS, a calm and efficient AI assistant for a busy user. "
+            "Use short-term conversation history, long-term memory facts, and tool output to answer. "
+            "Keep replies concise, factual, and grounded in available context. "
+            "Do not invent unsupported details, and always prefer real data over guesswork."
         )
     
 _last_memory_input = ""
@@ -494,7 +532,7 @@ TOOL_DECLARATIONS = [
 
 class JarvisLive:
 
-    def __init__(self, ui: JarvisUI):
+    def __init__(self, ui: JarvisUI, rag_processor: JarvisRAGProcessor | None = None):
         self.ui             = ui
         self.session        = None
         self.audio_in_queue = None
@@ -503,6 +541,7 @@ class JarvisLive:
         self._is_speaking   = False
         self._speaking_lock = threading.Lock()
         self.ui.on_text_command = self._on_text_command
+        self.rag_processor = rag_processor or JarvisRAGProcessor()
 
     def _on_text_command(self, text: str):
         if not self._loop or not self.session:
@@ -784,6 +823,22 @@ class JarvisLive:
                             out_buf = []
 
                             if full_in and len(full_in) > 5:
+                                jarvis_response = None
+                                if self.rag_processor is not None:
+                                    try:
+                                        jarvis_response = self.rag_processor.process_user_input(full_in)
+                                    except Exception as exc:
+                                        jarvis_response = (
+                                            "Sir, my cognitive sub-systems are restarting, "
+                                            "but I am still online."
+                                        )
+                                        print(f"[JARVIS] ⚠️ RAG processing failed: {exc}")
+
+                                if jarvis_response:
+                                    full_out = jarvis_response
+                                    self.ui.write_log(f"Jarvis: {full_out}")
+                                    self.speak(full_out)
+
                                 threading.Thread(
                                     target=_update_memory_async,
                                     args=(full_in, full_out),
@@ -873,7 +928,8 @@ def main():
 
     def runner():
         ui.wait_for_api_key()
-        jarvis = JarvisLive(ui)
+        rag_processor = JarvisRAGProcessor()
+        jarvis = JarvisLive(ui, rag_processor=rag_processor)
         try:
             asyncio.run(jarvis.run())
         except KeyboardInterrupt:
