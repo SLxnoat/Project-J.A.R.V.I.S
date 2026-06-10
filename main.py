@@ -40,6 +40,9 @@ from actions.code_helper       import code_helper
 from actions.dev_agent         import dev_agent
 from actions.web_search        import web_search as web_search_action
 from actions.computer_control  import computer_control
+
+# Import memory manager for search result storage
+from memory.memory_manager import JarvisMemory
 from actions.game_updater      import game_updater
 
 
@@ -543,6 +546,14 @@ class JarvisLive:
         self.ui.on_text_command = self._on_text_command
         self.rag_processor = rag_processor or JarvisRAGProcessor()
 
+    def _drop_oldest_queue_item(self, queue):
+        """Helper to drop oldest queue item when full."""
+        try:
+            if not queue.empty():
+                queue.get_nowait()
+        except Exception:
+            pass
+
     def _on_text_command(self, text: str):
         if not self._loop or not self.session:
             return
@@ -711,6 +722,24 @@ class JarvisLive:
                 r = await loop.run_in_executor(None, lambda: web_search_action(parameters=args, player=self.ui))
                 result = r or "Done."
 
+                # Store search results in memory for RAG
+                try:
+                    # Parse the result to extract URLs from the formatted output
+                    import re
+                    url_pattern = r'\[?\d+\]\s+.*?\n\s+Source:\s+(\S+)'
+                    urls = re.findall(url_pattern, result)
+                    if urls:
+                        memory = JarvisMemory()
+                        for url in urls:
+                            memory.store_permanent_fact(
+                                f"Search result URL: {url}",
+                                metadata={"source": "web_search", "url": url}
+                            )
+                        print(f"[Memory] ✅ Stored {len(urls)} search result URLs in ChromaDB")
+                except Exception as e:
+                    # Non-critical: memory storage failure should not fail the search
+                    print(f"[Memory] ⚠️ Failed to store search results: {e}")
+
             elif name == "computer_control":
                 r = await loop.run_in_executor(None, lambda: computer_control(parameters=args, player=self.ui))
                 result = r or "Done."
@@ -764,10 +793,24 @@ class JarvisLive:
                 jarvis_speaking = self._is_speaking
             if not jarvis_speaking and not self.ui.muted:
                 data = indata.tobytes()
-                loop.call_soon_threadsafe(
-                    self.out_queue.put_nowait,
-                    {"data": data, "mime_type": "audio/pcm"}
-                )
+                queue_data = {"data": data, "mime_type": "audio/pcm"}
+                try:
+                    loop.call_soon_threadsafe(
+                        self.out_queue.put_nowait,
+                        queue_data
+                    )
+                except asyncio.QueueFull:
+                    # Clear oldest frame to make space for real-time stream
+                    try:
+                        loop.call_soon_threadsafe(
+                            lambda: self._drop_oldest_queue_item(self.out_queue)
+                        )
+                        loop.call_soon_threadsafe(
+                            self.out_queue.put_nowait,
+                            queue_data
+                        )
+                    except Exception:
+                        pass  # Drop frame if queue remains full
 
         try:
             with sd.InputStream(
@@ -793,7 +836,16 @@ class JarvisLive:
                 async for response in self.session.receive():
 
                     if response.data:
-                        self.audio_in_queue.put_nowait(response.data)
+                        try:
+                            self.audio_in_queue.put_nowait(response.data)
+                        except asyncio.QueueFull:
+                            # Clear oldest frame to make space for real-time stream
+                            try:
+                                if not self.audio_in_queue.empty():
+                                    self.audio_in_queue.get_nowait()
+                                self.audio_in_queue.put_nowait(response.data)
+                            except Exception:
+                                pass  # Drop frame if queue remains full
 
                     if response.server_content:
                         sc = response.server_content

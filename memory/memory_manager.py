@@ -1,5 +1,6 @@
 # memory/memory_manager.py
 # Modernized with google-genai SDK (v1.0+) and .env configuration
+# Uses unified config loader for API key management
 
 import json
 import os
@@ -14,30 +15,23 @@ from uuid import uuid4
 try:
     import chromadb
     from chromadb.config import Settings
-except Exception:  # Jarvis: long-term vector store unavailable without chromadb
+except Exception:
     chromadb = None
     Settings = None
 
-# Modern google-genai SDK import (replaces deprecated google.generativeai)
 try:
     from google import genai
-except Exception:  # Jarvis: Gemini embeddings unavailable without google.genai
+except Exception:
     genai = None
 
-# python-dotenv for .env file support
 try:
     from dotenv import load_dotenv
-    HAS_DOTENV = True
-    load_dotenv()  # Load .env file from project root
+    load_dotenv()
 except ImportError:
-    HAS_DOTENV = False
+    pass
 
-
-def get_base_dir() -> Path:
-    if getattr(sys, "frozen", False):
-        return Path(sys.executable).parent
-    return Path(__file__).resolve().parent.parent
-
+# Import unified config loader
+from config.loader import get_base_dir, get_api_key
 
 BASE_DIR = get_base_dir()
 MEMORY_DIR = BASE_DIR / "jarvis_memory"
@@ -48,31 +42,10 @@ EMBEDDING_MODEL = "text-embedding-004"
 
 def _get_env_api_key(key_name: str) -> str | None:
     """
-    Load API key from environment variable with fallback to JSON config.
-    Prioritizes .env file, then os.environ, then api_keys.json.
+    Load API key using unified config loader.
+    Priority: .env -> os.environ -> config/api_keys.json
     """
-    # First try environment variable (from .env or system)
-    value = os.getenv(key_name)
-    if value:
-        return value
-
-    # Fallback to JSON config if .env not available
-    api_path = BASE_DIR / "config" / "api_keys.json"
-    if api_path.exists():
-        try:
-            data = json.loads(api_path.read_text(encoding="utf-8"))
-            # Map JSON keys to environment variable names
-            key_map = {
-                "gemini_api_key": "GEMINI_API_KEY",
-                "openrouter_api_key": "OPENROUTER_API_KEY",
-                "serper_api_key": "SERPER_API_KEY",
-            }
-            if key_name in key_map:
-                return data.get(key_map[key_name])
-            return data.get(key_name.lower())
-        except Exception as exc:
-            print(f"[Jarvis Memory] ⚠️ Failed to load API key from JSON: {exc}")  # Jarvis: JSON fallback failed
-    return None
+    return get_api_key(key_name)
 
 
 class JarvisMemory:
@@ -152,21 +125,49 @@ class JarvisMemory:
 
         try:
             # Modern 2026 API format for text embeddings
+            # Pass text directly as string
             response = self._genai_client.models.embed_content(
                 model=EMBEDDING_MODEL,
-                contents=[cleaned_text],
+                contents=cleaned_text,
             )
 
-            # Extract embedding values from the response
+            # Handle response - check for different attribute names
+            # Try embeddings first (list format)
             if hasattr(response, "embeddings") and response.embeddings:
-                first_embedding = response.embeddings[0]
-                # Modern SDK returns values as a property
-                if hasattr(first_embedding, "values"):
-                    return first_embedding.values
-                if hasattr(first_embedding, "embedding"):
-                    return first_embedding.embedding
-                if isinstance(first_embedding, list):
-                    return first_embedding
+                embedding = response.embeddings
+                # Handle list of embeddings
+                if isinstance(embedding, list) and len(embedding) > 0:
+                    first_embedding = embedding[0]
+                    if hasattr(first_embedding, "values"):
+                        return first_embedding.values
+                    if hasattr(first_embedding, "embedding"):
+                        return first_embedding.embedding
+                    if isinstance(first_embedding, (list, tuple)):
+                        return list(first_embedding)
+
+            # Try embedding attribute (single embedding format)
+            if hasattr(response, "embedding"):
+                embedding = response.embedding
+                if hasattr(embedding, "values"):
+                    return embedding.values
+                if hasattr(embedding, "embedding"):
+                    return embedding.embedding
+                if isinstance(embedding, (list, tuple)):
+                    return list(embedding)
+
+            # Handle dict-like response
+            if hasattr(response, "__dict__"):
+                for attr_name in ["embeddings", "embedding"]:
+                    attr = getattr(response, attr_name, None)
+                    if attr is not None:
+                        if isinstance(attr, list) and len(attr) > 0:
+                            item = attr[0]
+                            if hasattr(item, "values"):
+                                return list(item.values)
+                            if hasattr(item, "embedding"):
+                                return list(item.embedding)
+                            if isinstance(item, (list, tuple)):
+                                return list(item)
 
             print("[Jarvis Memory] ⚠️ Failed to extract embedding from response")  # Jarvis: embedding extraction failed
             return None

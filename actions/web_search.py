@@ -1,6 +1,6 @@
 # web_search.py
-# Hybrid Omni-Search & Playwright Stealth Deep Scraper with ChromaDB RAG Integration
-# Replaces old OpenRouter LLM-based search with Serper API + async deep scraping
+# Hybrid Omni-Search & Playwright Stealth Deep Scraper
+# Returns search results and scraped content; memory persistence handled by main.py
 
 import asyncio
 import json
@@ -12,10 +12,11 @@ import requests
 
 # Try to import playwright_stealth for bypassing anti-bot protections
 try:
-    import playwright_stealth
+    from playwright_stealth import stealth_async
     HAS_STEALTH = True
 except ImportError:
     HAS_STEALTH = False
+    stealth_async = None
 
 # Try to import playwright async API
 try:
@@ -24,30 +25,10 @@ try:
 except ImportError:
     HAS_PLAYWRIGHT = False
 
-BASE_DIR: Path = Path(__file__).resolve().parent.parent
-API_CONFIG_PATH: Path = BASE_DIR / "config" / "api_keys.json"
+from config.loader import get_base_dir, get_serper_api_key, get_openrouter_api_key
+
+BASE_DIR: Path = get_base_dir()
 SERPER_API_URL: str = "https://google.serper.dev/search"
-
-# Try to import playwright async API
-try:
-    from playwright.async_api import async_playwright
-    HAS_PLAYWRIGHT = True
-except ImportError:
-    HAS_PLAYWRIGHT = False
-
-def _get_api_key() -> str:
-    """Load Gemini API key from config."""
-    with open(API_CONFIG_PATH, "r", encoding="utf-8") as f:
-        return json.load(f)["gemini_api_key"]
-
-
-def _get_serper_api_key() -> str:
-    """Load Serper API key from config, or use fallback."""
-    try:
-        with open(API_CONFIG_PATH, "r", encoding="utf-8") as f:
-            return json.load(f).get("serper_api_key", "")
-    except Exception:
-        return ""
 
 
 def _serper_search(query: str, max_results: int = 3) -> list[dict]:
@@ -55,24 +36,31 @@ def _serper_search(query: str, max_results: int = 3) -> list[dict]:
     Query the Serper API for search results.
     Returns top organic search result URLs and metadata.
     """
-    serper_key = _get_serper_api_key()
+    serper_key = get_serper_api_key()
     if not serper_key:
         # Fallback to OpenRouter if no Serper key
-        try:
-            from or_client import client
-            result = client.chat(
-                f"Search the web for: {query}",
-                system="You are a web search assistant. Provide factually accurate results with sources.",
-            )
-            return [
-                {
-                    "title": "Search Result",
-                    "snippet": result[:500],
-                    "url": "https://example.com/search-result",
-                }
-            ]
-        except Exception as e:
-            print(f"[WebSearch] ⚠️ Serper key missing and OpenRouter failed: {e}")
+        openrouter_key = get_openrouter_api_key()
+        if openrouter_key:
+            try:
+                from or_client import Client
+                client = Client(api_key=openrouter_key)
+                result = client.chat(
+                    f"Search the web for: {query}",
+                    system="You are a web search assistant. Provide factually accurate results with sources.",
+                    max_tokens=500,
+                )
+                return [
+                    {
+                        "title": "Search Result",
+                        "snippet": result[:500],
+                        "url": "https://example.com/search-result",
+                    }
+                ]
+            except Exception as e:
+                print(f"[WebSearch] ⚠️ OpenRouter search failed: {e}")
+                return []
+        else:
+            print("[WebSearch] ⚠️ Serper key missing and OpenRouter key unavailable")
             return []
 
     headers = {
@@ -128,8 +116,8 @@ async def _scrape_page_with_stealth(
     """
     try:
         # Apply playwright_stealth to bypass anti-bot protections
-        if HAS_STEALTH:
-            await playwright_stealth.stealth_async(page)
+        if HAS_STEALTH and stealth_async:
+            await stealth_async(page)
 
         # Set realistic User-Agent
         await page.set_extra_http_headers({
@@ -258,12 +246,11 @@ def _clean_scraped_content(text: str) -> str:
     return text
 
 
-async def _deep_scrape_and_store(
-    search_results: list[dict],
-) -> list[dict]:
+async def _deep_scrape(search_results: list[dict]) -> list[dict]:
     """
-    Deep scrape top 3 URLs and store in ChromaDB via RAG.
+    Deep scrape top 3 URLs without memory storage.
     Returns enriched results with scraped content.
+    Memory persistence is handled by the caller (main.py).
     """
     if not search_results:
         return []
@@ -283,25 +270,12 @@ async def _deep_scrape_and_store(
         # Clean content
         clean_content = _clean_scraped_content(content) if content else ""
 
-        # Store in ChromaDB for long-term memory
-        try:
-            from memory.memory_manager import JarvisMemory
-
-            memory = JarvisMemory()
-            metadata = {"url": url, "title": title}
-
-            if clean_content:
-                memory.store_permanent_fact(clean_content, metadata=metadata)
-                print(f"[WebSearch] ✅ Stored {url} in ChromaDB memory")
-
-        except Exception as e:
-            print(f"[WebSearch] ⚠️ Failed to store {url} in memory: {e}")
-
         enriched_results.append({
             "title": title,
-            "snippet": clean_content[:500] if clean_content else "",  # Use scraped content as snippet
+            "snippet": clean_content[:500] if clean_content else "",
             "url": url,
             "full_content": clean_content,
+            "metadata": {"url": url, "title": title},
         })
 
     return enriched_results
@@ -356,6 +330,7 @@ def web_search_action(parameters: dict, player=None) -> str:
     """
     Main synchronous wrapper function for web_search.
     Managed through asyncio.run() for compatibility with Jarvis's thread-safe executor.
+    Returns formatted search results. Memory storage is handled by main.py.
     """
     params = parameters or {}
     query = params.get("query", "").strip()
@@ -379,7 +354,7 @@ def web_search_action(parameters: dict, player=None) -> str:
 
         # Step 2: Deep scrape the top 3 URLs concurrently
         async def run_scrape():
-            return await _deep_scrape_and_store(search_results)
+            return await _deep_scrape(search_results)
 
         scraped_results = asyncio.run(run_scrape())
 
@@ -395,10 +370,10 @@ def web_search_action(parameters: dict, player=None) -> str:
         return f"Search failed for '{query}', sir: {e}"
 
 
-# Legacy function for compatibility
-def web_search(parameters: dict, response=None, player=None, session_memory=None) -> str:
+def web_search(parameters: dict, player=None) -> str:
     """
     Legacy wrapper function - now delegates to web_search_action.
+    Kept for backward compatibility.
     """
     return web_search_action(parameters, player)
 
