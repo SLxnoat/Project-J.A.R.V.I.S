@@ -1475,3 +1475,814 @@ if __name__ == "__main__":
         print(f"[CrewEngine] FATAL: {e}")
         sys.exit(2)
 
+
+# ════════════════════════════════════════════════════════════════════════════════
+#  §8  ADVANCED ORCHESTRATION EXTENSIONS
+# ════════════════════════════════════════════════════════════════════════════════
+
+# ────────────────────────────────────────────────────────────────────────────────
+#  §8.1  DELEGATION ENGINE — Agent-to-Agent Task Handoff
+# ────────────────────────────────────────────────────────────────────────────────
+
+class DelegationEngine:
+    """
+    Enables intelligent task delegation between CrewAI agents.
+
+    Agents can delegate sub-tasks to each other based on specialization:
+    - ResearchAnalyst → WebSearch, YouTube, Weather
+    - SystemExecutor → File, Browser, Code, System actions
+    - QualityAssuranceReviewer → Verification, Validation, Review
+    """
+
+    def __init__(self, agents: dict[str, Agent]) -> None:
+        self.agents = agents
+        self.delegation_history: list[dict[str, Any]] = []
+
+    def get_specialized_agent(self, task_category: str) -> str | None:
+        """Return the agent best suited for a given task category."""
+        category_map: dict[str, list[str]] = {
+            "research": ["ResearchAnalyst"],
+            "execution": ["SystemExecutor"],
+            "qa": ["QualityAssuranceReviewer"],
+            "multi": ["ResearchAnalyst", "SystemExecutor"],
+        }
+        candidates = category_map.get(task_category.lower(), [])
+        if not candidates:
+            return None
+        # Return first available agent
+        for agent_name in candidates:
+            if agent_name in self.agents:
+                return agent_name
+        return None
+
+    def delegate(
+        self,
+        task_description: str,
+        category: str,
+        context: str | None = None,
+    ) -> tuple[bool, str, dict[str, Any]]:
+        """
+        Delegate a task to the appropriate agent.
+
+        Returns (success, result, metadata)
+        """
+        agent_name = self.get_specialized_agent(category)
+        if not agent_name or agent_name not in self.agents:
+            return False, f"No agent available for category: {category}", {}
+
+        agent = self.agents[agent_name]
+        delegation_entry = {
+            "from": "Orchestrator",
+            "to": agent_name,
+            "category": category,
+            "task": task_description[:100],
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+        self.delegation_history.append(delegation_entry)
+
+        # Create a sub-task for the delegated agent
+        sub_task = Task(
+            description=task_description,
+            expected_output="A concise result or report on the task.",
+            agent=agent,
+            async_execution=False,
+        )
+
+        # Create a minimal crew for delegation
+        try:
+            sub_crew = Crew(
+                agents=[agent],
+                tasks=[sub_task],
+                process=Process.sequential,
+                verbose=False,
+                memory=False,
+            )
+            result = sub_crew.kickoff()
+            final_output = str(result.raw if hasattr(result, "raw") else result)
+
+            delegation_entry["status"] = "success"
+            delegation_entry["output_length"] = len(final_output)
+
+            return True, final_output, delegation_entry
+        except Exception as exc:
+            delegation_entry["status"] = "failed"
+            delegation_entry["error"] = str(exc)[:200]
+            return False, f"Delegation failed: {exc}", delegation_entry
+
+
+# ────────────────────────────────────────────────────────────────────────────────
+#  §8.2  PLANNER AGENT — Execution Plan Synthesis
+# ────────────────────────────────────────────────────────────────────────────────
+
+PLANNER_PROMPT = """You are the Master Planner of the JARVIS CrewAI Orchestration Engine.
+Your job is to create detailed, step-by-step execution plans before any execution begins.
+
+## PLANNING INSTRUCTIONS
+1. Break the goal into 3-7 logical phases
+2. For each phase, specify:
+   - Required tools
+   - Expected output format
+   - Success criteria
+3. Identify dependencies between phases
+4. Flag high-risk or critical phases
+5. Suggest parallel execution opportunities
+
+## OUTPUT FORMAT
+Return ONLY a valid JSON object:
+
+{
+  "plan_name": "Descriptive name",
+  "phases": [
+    {
+      "phase": 1,
+      "name": "Phase name",
+      "description": "What to accomplish",
+      "tools": ["tool1", "tool2"],
+      "dependencies": [],
+      "parallelizable": true,
+      "critical": false
+    }
+  ],
+  "dependencies": {
+    "phase_2": ["phase_1"],
+    "phase_3": ["phase_1", "phase_2"]
+  },
+  "critical_phases": [1, 3],
+  "risk_assessment": "Low/Medium/High"
+}
+"""
+
+
+def create_execution_plan(
+    goal: str,
+    context: str,
+    llm: LLM,
+    max_retries: int = 2,
+) -> dict[str, Any]:
+    """
+    Use a dedicated Planner agent to create an execution plan.
+    Falls back to simple parsing if LLM fails.
+    """
+    planner = Agent(
+        role="Master Planner",
+        goal="Create detailed execution plans for complex multi-step goals",
+        backstory=(
+            "You are an expert project planner with deep knowledge of "
+            "system automation, research, and quality assurance workflows. "
+            "You think critically about dependencies and risks."
+        ),
+        tools=[],
+        llm=llm,
+        allow_delegation=False,
+        verbose=False,
+        max_iter=max_retries,
+    )
+
+    task = Task(
+        description=(
+            f"Create a detailed execution plan for this goal:\n\n{goal}\n\n"
+            f"Additional context:\n{context}\n\n"
+            f"{PLANNER_PROMPT}"
+        ),
+        expected_output="A structured JSON execution plan with phases, tools, and dependencies.",
+        agent=planner,
+        async_execution=False,
+    )
+
+    crew = Crew(
+        agents=[planner],
+        tasks=[task],
+        process=Process.sequential,
+        verbose=False,
+        memory=False,
+    )
+
+    try:
+        result = crew.kickoff()
+        raw = str(result.raw if hasattr(result, "raw") else result)
+
+        # Clean and parse JSON
+        import re
+        json_match = re.search(r"\{[\s\S]*\}", raw)
+        if json_match:
+            import json
+            return json.loads(json_match.group())
+
+        # Fallback - return a simple plan
+        return {
+            "plan_name": "Default Plan",
+            "phases": [
+                {
+                    "phase": 1,
+                    "name": "Research",
+                    "description": f"Research: {goal}",
+                    "tools": ["web_search"],
+                    "dependencies": [],
+                    "parallelizable": False,
+                    "critical": True,
+                },
+                {
+                    "phase": 2,
+                    "name": "Execution",
+                    "description": f"Execute: {goal}",
+                    "tools": ["file_controller", "browser_control"],
+                    "dependencies": [0],
+                    "parallelizable": False,
+                    "critical": True,
+                },
+            ],
+            "dependencies": {"phase_2": ["phase_1"]},
+            "critical_phases": [1, 2],
+            "risk_assessment": "Medium",
+        }
+    except Exception as exc:
+        log.warning(f"[Planner] Failed to create plan: {exc}")
+        # Return simple fallback
+        return {
+            "plan_name": "Fallback Plan",
+            "phases": [
+                {
+                    "phase": 1,
+                    "name": "Default Execution",
+                    "description": goal,
+                    "tools": [],
+                    "dependencies": [],
+                    "parallelizable": True,
+                    "critical": True,
+                }
+            ],
+            "dependencies": {},
+            "critical_phases": [1],
+            "risk_assessment": "Low",
+        }
+
+
+# ────────────────────────────────────────────────────────────────────────────────
+#  §8.3  PARALLEL EXECUTION ENGINE
+# ────────────────────────────────────────────────────────────────────────────────
+
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from threading import Lock
+
+
+class ParallelExecutionEngine:
+    """
+    Execute multiple tasks concurrently using thread pooling.
+    Monitors progress and aggregates results.
+    """
+
+    def __init__(self, max_workers: int = 4) -> None:
+        self.max_workers = max_workers
+        self.executor = ThreadPoolExecutor(max_workers=max_workers)
+        self.results_lock = Lock()
+        self.completed_results: list[dict[str, Any]] = []
+
+    def execute_parallel(
+        self,
+        tasks: list[dict[str, Any]],
+        tools: dict[str, Any],
+        agent: Agent,
+    ) -> dict[str, Any]:
+        """
+        Execute multiple tasks in parallel and collect results.
+
+        Each task dict should have: 'description', 'expected_output', 'tools'
+        """
+        futures = {}
+        results = []
+        errors = []
+
+        for i, task_def in enumerate(tasks):
+            tool_names = task_def.get("tools", [])
+            available_tools = [t for t in tool_names if t in tools]
+
+            future = self.executor.submit(
+                self._execute_single_task,
+                i,
+                task_def["description"],
+                task_def.get("expected_output", ""),
+                available_tools,
+                tools,
+                agent,
+            )
+            futures[future] = i
+
+        for future in as_completed(futures):
+            task_idx = futures[future]
+            try:
+                result = future.result()
+                with self.results_lock:
+                    self.completed_results.append(result)
+                results.append(result)
+            except Exception as exc:
+                errors.append({"task": task_idx, "error": str(exc)})
+
+        return {
+            "success": len(errors) == 0,
+            "results": results,
+            "errors": errors,
+            "total_tasks": len(tasks),
+            "completed": len(results),
+            "failed": len(errors),
+        }
+
+    def _execute_single_task(
+        self,
+        task_idx: int,
+        description: str,
+        expected_output: str,
+        tools: list[str],
+        all_tools: dict[str, Any],
+        agent: Agent,
+    ) -> dict[str, Any]:
+        """Execute a single task within the parallel pool."""
+        # Filter tools by what's available
+        available_tools = [t for t in tools if t in all_tools]
+
+        # Create task with available tools
+        task = Task(
+            description=description,
+            expected_output=expected_output,
+            agent=agent,
+            tools=[all_tools[t] for t in available_tools if t in all_tools] if available_tools else None,
+            async_execution=False,
+        )
+
+        crew = Crew(
+            agents=[agent],
+            tasks=[task],
+            process=Process.sequential,
+            verbose=False,
+            memory=False,
+        )
+
+        result = crew.kickoff()
+        raw_output = str(result.raw if hasattr(result, "raw") else result)
+
+        return {
+            "task_index": task_idx,
+            "success": True,
+            "output": raw_output[:500],  # Truncate for storage
+            "output_length": len(raw_output),
+        }
+
+    def shutdown(self) -> None:
+        """Shutdown the thread pool."""
+        self.executor.shutdown(wait=True)
+
+
+# ────────────────────────────────────────────────────────────────────────────────
+#  §8.4  STATE MANAGEMENT — Persistent Memory Between Runs
+# ────────────────────────────────────────────────────────────────────────────────
+
+import pickle
+from pathlib import Path
+
+
+class CrewState:
+    """
+    Manages persistent state between CrewAI engine runs.
+    Stores conversation history, task progress, and agent memories.
+    """
+
+    def __init__(self, state_dir: Path = None) -> None:
+        self.base_dir = state_dir or (BASE_DIR / "crew_state")
+        self.base_dir.mkdir(parents=True, exist_ok=True)
+        self.conversation_history: list[dict[str, Any]] = []
+        self.task_history: list[dict[str, Any]] = []
+        self.agent_memories: dict[str, list[dict[str, Any]]] = {}
+        self._load_state()
+
+    def _load_state(self) -> None:
+        """Load state from disk if available."""
+        try:
+            history_file = self.base_dir / "conversation_history.json"
+            if history_file.exists():
+                import json
+                self.conversation_history = json.loads(history_file.read_text(encoding="utf-8"))
+        except Exception as exc:
+            log.warning(f"[CrewState] Failed to load history: {exc}")
+
+        try:
+            task_file = self.base_dir / "task_history.json"
+            if task_file.exists():
+                import json
+                self.task_history = json.loads(task_file.read_text(encoding="utf-8"))
+        except Exception as exc:
+            log.warning(f"[CrewState] Failed to load task history: {exc}")
+
+    def _save_state(self) -> None:
+        """Save state to disk."""
+        try:
+            import json
+            self.base_dir.mkdir(parents=True, exist_ok=True)
+            (self.base_dir / "conversation_history.json").write_text(
+                json.dumps(self.conversation_history, indent=2, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            (self.base_dir / "task_history.json").write_text(
+                json.dumps(self.task_history, indent=2, ensure_ascii=False),
+                encoding="utf-8",
+            )
+        except Exception as exc:
+            log.warning(f"[CrewState] Failed to save state: {exc}")
+
+    def add_conversation(
+        self,
+        user_query: str,
+        agent_response: str,
+        agent_role: str,
+        metadata: dict[str, Any] = None,
+    ) -> None:
+        """Record a conversation turn."""
+        entry = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "user_query": user_query[:2000],
+            "agent_role": agent_role,
+            "agent_response": agent_response[:5000],
+            "metadata": metadata or {},
+        }
+        self.conversation_history.append(entry)
+        # Trim history to last 100 entries
+        if len(self.conversation_history) > 100:
+            self.conversation_history = self.conversation_history[-100:]
+        self._save_state()
+
+    def add_task(
+        self,
+        task_type: str,
+        goal: str,
+        success: bool,
+        duration_seconds: float,
+        metadata: dict[str, Any] = None,
+    ) -> None:
+        """Record a task completion."""
+        entry = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "task_type": task_type,
+            "goal": goal[:1000],
+            "success": success,
+            "duration_seconds": duration_seconds,
+            "metadata": metadata or {},
+        }
+        self.task_history.append(entry)
+        if len(self.task_history) > 500:
+            self.task_history = self.task_history[-500:]
+        self._saveState()
+
+    def get_recent_conversations(self, n: int = 10) -> list[dict]:
+        """Get recent conversation history."""
+        return self.conversation_history[-n:]
+
+    def get_agent_memory(self, agent_role: str) -> list[dict]:
+        """Get memory entries for a specific agent."""
+        return self.agent_memories.get(agent_role, [])
+
+    def update_agent_memory(
+        self,
+        agent_role: str,
+        key: str,
+        value: Any,
+    ) -> None:
+        """Update an agent's memory store."""
+        if agent_role not in self.agent_memories:
+            self.agent_memories[agent_role] = []
+        self.agent_memories[agent_role].append({
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "key": key,
+            "value": value,
+        })
+
+    def clear_history(self, type_filter: str = None) -> None:
+        """Clear history, optionally filtered by type."""
+        if type_filter is None or type_filter == "conversation":
+            self.conversation_history = []
+        if type_filter is None or type_filter == "task":
+            self.task_history = []
+        if type_filter is None or type_filter == "memory":
+            self.agent_memories = {}
+        self._save_state()
+
+
+# ────────────────────────────────────────────────────────────────────────────────
+#  §8.5  ENHANCED CREW ORCHESTRATION ENGINE
+# ────────────────────────────────────────────────────────────────────────────────
+
+class EnhancedCrewOrchestrationEngine(CrewOrchestrationEngine):
+    """
+    Extended version of CrewOrchestrationEngine with advanced features:
+    - Multi-phase planning
+    - Task delegation between agents
+    - Parallel task execution
+    - Persistent state management
+    """
+
+    def __init__(
+        self,
+        config: CrewEngineConfig,
+        enable_parallel: bool = True,
+        enable_delegation: bool = True,
+        enable_planning: bool = True,
+        enable_memory: bool = True,
+    ) -> None:
+        super().__init__(config)
+        self.enable_parallel = enable_parallel
+        self.enable_delegation = enable_delegation
+        self.enable_planning = enable_planning
+        self.enable_memory = enable_memory
+
+        # Initialize additional engines
+        self._planning_engine = None
+        self._parallel_engine = ParallelExecutionEngine() if enable_parallel else None
+        self._state_manager = CrewState() if enable_memory else None
+        self._delegation_engine = None
+
+    # ─ Multi-phase Planning ────────────────────────────────────────────────
+    def create_plan(self, goal: str, context: str = "") -> dict[str, Any]:
+        """Create an execution plan using the Planner agent."""
+        if not self.enable_planning:
+            return super()._build_tasks(goal, context, {})  # type: ignore
+
+        return create_execution_plan(goal, context, self._llm)
+
+    # ─ Parallel Execution ───────────────────────────────────────────────────
+    def execute_parallel_tasks(
+        self,
+        goal: str,
+        tasks: list[dict[str, Any]],
+        agents: dict[str, Agent],
+    ) -> dict[str, Any]:
+        """Execute multiple tasks in parallel."""
+        if not self._parallel_engine or not self.enable_parallel:
+            # Fall back to sequential
+            results = []
+            for task_def in tasks:
+                # Create and execute task sequentially
+                result = {"task": task_def.get("description", ""), "success": False}
+                try:
+                    res = self.run(goal=f"{goal}: {task_def.get('description', '')}")
+                    result["success"] = res.success
+                    result["output"] = res.final_output
+                except Exception as e:
+                    result["error"] = str(e)
+                results.append(result)
+            return {"results": results, "success": all(r.get("success") for r in results)}
+
+        # Use parallel engine
+        available_tools = {t.name: t for t in self._tools}
+        results = self._parallel_engine.execute_parallel(tasks, available_tools, agents.get("SystemExecutor"))
+        return results
+
+    # ─ Task Delegation ──────────────────────────────────────────────────────
+    def delegate_task(
+        self,
+        task_description: str,
+        category: str,
+        agents: dict[str, Agent],
+    ) -> tuple[bool, str, dict[str, Any]]:
+        """Delegate a task to the appropriate specialized agent."""
+        if not self.enable_delegation:
+            return False, "Delegation disabled", {}
+
+        self._delegation_engine = DelegationEngine(agents)
+        return self._delegation_engine.delegate(task_description, category)
+
+    # ─ State Management ─────────────────────────────────────────────────────
+    def record_conversation(
+        self,
+        user_query: str,
+        agent_response: str,
+        agent_role: str = "System",
+        metadata: dict[str, Any] = None,
+    ) -> None:
+        """Record a conversation for persistent memory."""
+        if self._state_manager:
+            self._state_manager.add_conversation(user_query, agent_response, agent_role, metadata)
+
+    def get_conversation_history(self, n: int = 10) -> list[dict]:
+        """Get recent conversation history."""
+        if self._state_manager:
+            return self._state_manager.get_recent_conversations(n)
+        return []
+
+    # ─ Enhanced Run Method ──────────────────────────────────────────────────
+    def run(
+        self,
+        goal: str,
+        context: str = "",
+        use_planning: bool = True,
+        use_parallel: bool = False,
+        use_delegation: bool = False,
+    ) -> CrewRunResult:
+        """
+        Enhanced run method with configurable features.
+        """
+        import time
+
+        start_time = time.perf_counter()
+        agent_trace: list[dict[str, Any]] = []
+
+        # Sanitize inputs
+        try:
+            safe_goal = self._sanitize_input(goal)
+            safe_context = self._sanitize_input(context) if context else ""
+        except SecurityViolationError as sec_exc:
+            exec_time = time.perf_counter() - start_time
+            self._log_telemetry(TelemetryEvent(
+                timestamp=datetime.now(timezone.utc).isoformat(),
+                event_type="error", agent_role="sanitizer",
+                task_description=f"Security violation: {sec_exc.violation_type}",
+                tokens_used=0, duration_ms=int(exec_time * 1000),
+                metadata={"violation_type": sec_exc.violation_type},
+            ))
+            return CrewRunResult(
+                success=False, goal=goal[:200], final_output="",
+                agent_trace=[], total_tokens_used=0,
+                execution_time_seconds=exec_time,
+                error=f"Security violation: {sec_exc}",
+            )
+
+        # Create execution plan if enabled
+        plan = {}
+        if use_planning and self.enable_planning:
+            try:
+                plan = self.create_plan(safe_goal, safe_context)
+                log.info(f"[EnhancedEngine] Created plan: {plan.get('plan_name', 'unnamed')} with {len(plan.get('phases', []))} phases")
+            except Exception as exc:
+                log.warning(f"[EnhancedEngine] Plan creation failed: {exc}")
+                plan = {}
+
+        # Use parallel execution if enabled
+        if use_parallel and self.enable_parallel and plan.get("phases"):
+            parallel_tasks = []
+            for phase in plan.get("phases", []):
+                if phase.get("parallelizable", False):
+                    parallel_tasks.append({
+                        "description": phase.get("description", ""),
+                        "expected_output": phase.get("expected_output", ""),
+                        "tools": phase.get("tools", []),
+                    })
+
+            if parallel_tasks:
+                agents = self._build_agents()
+                parallel_result = self.execute_parallel_tasks(safe_goal, parallel_tasks, agents)
+                log.info(f"[EnhancedEngine] Parallel execution: {parallel_result.get('completed', 0)}/{parallel_result.get('total_tasks', 0)} tasks completed")
+
+        # Build agents and tasks (stateless)
+        agents = self._build_agents()
+        tasks = self._build_tasks(safe_goal, safe_context, agents)
+
+        # Log agent starts
+        for role in agents:
+            self._log_telemetry(TelemetryEvent(
+                timestamp=datetime.now(timezone.utc).isoformat(),
+                event_type="agent_start", agent_role=role,
+                task_description=safe_goal[:120],
+                tokens_used=0, duration_ms=0,
+                metadata={"agent_role": role},
+            ))
+
+        # Assemble Crew and kickoff
+        crew = Crew(
+            agents=list(agents.values()),
+            tasks=tasks,
+            process=Process.sequential,
+            verbose=True,
+            max_rpm=self.config.max_rpm,
+            memory=False,
+        )
+
+        final_output = ""
+        total_tokens = 0
+        error_msg: str | None = None
+        success = False
+
+        try:
+            kickoff_result = crew.kickoff()
+            if hasattr(kickoff_result, "raw"):
+                final_output = str(kickoff_result.raw)
+                if hasattr(kickoff_result, "token_usage"):
+                    usage = kickoff_result.token_usage
+                    if hasattr(usage, "total_tokens"):
+                        total_tokens = usage.total_tokens or 0
+                    elif isinstance(usage, dict):
+                        total_tokens = usage.get("total_tokens", 0)
+            else:
+                final_output = str(kickoff_result)
+
+            for i, task in enumerate(tasks):
+                entry = {
+                    "task_index": i,
+                    "agent_role": task.agent.role if task.agent else "unknown",
+                    "description_excerpt": task.description[:100],
+                }
+                if hasattr(task, "output") and task.output:
+                    entry["output_excerpt"] = str(task.output)[:200]
+                agent_trace.append(entry)
+
+            success = True
+
+        except SecurityViolationError as sec_exc:
+            error_msg = f"Security violation: {sec_exc}"
+            log.error(f"[CrewEngine] Security violation during kickoff: {sec_exc}")
+            self._log_telemetry(TelemetryEvent(
+                timestamp=datetime.now(timezone.utc).isoformat(),
+                event_type="error", agent_role="crew",
+                task_description=f"SecurityViolationError: {sec_exc.violation_type}",
+                tokens_used=0, duration_ms=0,
+                metadata={"violation_type": sec_exc.violation_type},
+            ))
+
+        except Exception as exc:
+            tb = traceback.format_exc()
+            error_msg = f"{type(exc).__name__}: {exc}"
+            log.error(f"[CrewEngine] Crew.kickoff() failed: {exc}")
+            self._log_telemetry(TelemetryEvent(
+                timestamp=datetime.now(timezone.utc).isoformat(),
+                event_type="error", agent_role="crew",
+                task_description=f"kickoff error: {str(exc)[:120]}",
+                tokens_used=0, duration_ms=0,
+                metadata={"traceback": tb[-500:]},
+            ))
+
+        exec_time = time.perf_counter() - start_time
+
+        self._log_telemetry(TelemetryEvent(
+            timestamp=datetime.now(timezone.utc).isoformat(),
+            event_type="task_complete", agent_role="crew",
+            task_description=safe_goal[:120],
+            tokens_used=total_tokens,
+            duration_ms=int(exec_time * 1000),
+            metadata={
+                "success": success,
+                "output_length": len(final_output),
+                "agents_count": len(agents),
+                "tasks_count": len(tasks),
+            },
+        ))
+
+        # Record conversation if memory is enabled
+        if self.enable_memory and self._state_manager:
+            self._state_manager.add_conversation(
+                safe_goal,
+                final_output[:2000],
+                "CrewAI",
+                {"success": success, "plan": plan, "plan_name": plan.get("plan_name", "")},
+            )
+
+        return CrewRunResult(
+            success=success,
+            goal=safe_goal,
+            final_output=final_output,
+            agent_trace=agent_trace,
+            total_tokens_used=total_tokens,
+            execution_time_seconds=exec_time,
+            error=error_msg,
+        )
+
+
+# ────────────────────────────────────────────────────────────────────────────────
+#  §8.6  CONVENIENCE FACTORY
+# ────────────────────────────────────────────────────────────────────────────────
+
+def load_enhanced_crew_engine(
+    model_name: str = "gemini/gemini-2.5-flash",
+    max_rpm: int = 10,
+    max_iter: int = 5,
+    enable_parallel: bool = True,
+    enable_delegation: bool = True,
+    enable_planning: bool = True,
+    enable_memory: bool = True,
+    log_level: str = "INFO",
+) -> EnhancedCrewOrchestrationEngine:
+    """
+    Factory to create an EnhancedCrewOrchestrationEngine with all features enabled.
+    """
+    import os
+    api_key = os.getenv("GEMINI_API_KEY", "")
+    if not api_key and API_CONFIG_PATH.exists():
+        try:
+            data = json.loads(API_CONFIG_PATH.read_text(encoding="utf-8"))
+            api_key = data.get("gemini_api_key") or data.get("GEMINI_API_KEY") or ""
+        except Exception as exc:
+            raise RuntimeError(f"[CrewEngine] Failed to parse api_keys.json: {exc}") from exc
+    if not api_key:
+        raise RuntimeError(
+            "[CrewEngine] GEMINI_API_KEY not found in environment or config/api_keys.json."
+        )
+    config = CrewEngineConfig(
+        gemini_api_key=api_key,
+        model_name=model_name,
+        max_rpm=max_rpm,
+        max_iter=max_iter,
+        allow_code_execution=False,
+        log_level=log_level,
+    )
+    return EnhancedCrewOrchestrationEngine(
+        config=config,
+        enable_parallel=enable_parallel,
+        enable_delegation=enable_delegation,
+        enable_planning=enable_planning,
+        enable_memory=enable_memory,
+    )
+
