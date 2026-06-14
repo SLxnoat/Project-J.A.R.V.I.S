@@ -12,6 +12,11 @@ from pathlib import Path
 from threading import Lock
 from uuid import uuid4
 
+# Add project root to path for config imports when running directly
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+if str(_PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(_PROJECT_ROOT))
+
 try:
     import chromadb
     from chromadb.config import Settings
@@ -36,6 +41,11 @@ from config.loader import get_base_dir, get_api_key
 BASE_DIR = get_base_dir()
 MEMORY_DIR = BASE_DIR / "jarvis_memory"
 SHORT_TERM_DB_PATH = MEMORY_DIR / "short_term.db"
+# ChromaDB 1.1.1 uses a Rust-backed SQLite engine.  Pointing it at a directory
+# that already contains a legacy chroma.sqlite3 (written by an older Python-only
+# backend) causes a Rust index-out-of-range panic.  Storing in its own clean
+# subdirectory avoids this permanently without deleting existing data.
+CHROMA_STORE_DIR = MEMORY_DIR / "chroma_store"
 LONG_TERM_COLLECTION_NAME = "jarvis_long_term"
 EMBEDDING_MODEL = "text-embedding-004"
 
@@ -84,7 +94,7 @@ class JarvisMemory:
             )
             self._short_term_conn.commit()
         except Exception as exc:
-            print(f"[Jarvis Memory] ⚠️ Failed to initialize short-term SQLite: {exc}")  # Jarvis: fallback to no short-term store
+            print(f"[Jarvis Memory] [WARN] Failed to initialize short-term SQLite: {exc}")  # Jarvis: fallback to no short-term store
             self._short_term_conn = None
 
     def _init_genai_client(self) -> None:
@@ -100,15 +110,15 @@ class JarvisMemory:
         self._api_key = _get_env_api_key("GEMINI_API_KEY")
         if not self._api_key:
             self._genai_client = None
-            print("[Jarvis Memory] ⚠️ GEMINI_API_KEY not found")  # Jarvis: no API key available
+            print("[Jarvis Memory] [WARN] GEMINI_API_KEY not found")  # Jarvis: no API key available
             return
 
         try:
             # Modern 2026 SDK Client initialization
             self._genai_client = genai.Client(api_key=self._api_key)
-            print("[Jarvis Memory] ✅ Google GenAI SDK client initialized")  # Jarvis: Gemini SDK ready
+            print("[Jarvis Memory] [OK] Google GenAI SDK client initialized")  # Jarvis: Gemini SDK ready
         except Exception as exc:
-            print(f"[Jarvis Memory] ⚠️ Failed to initialize Gemini client: {exc}")  # Jarvis: embedding service unavailable
+            print(f"[Jarvis Memory] [WARN] Failed to initialize Gemini client: {exc}")  # Jarvis: embedding service unavailable
             self._genai_client = None
 
     def _embed_text(self, text: str) -> list[float] | None:
@@ -131,29 +141,37 @@ class JarvisMemory:
                 contents=cleaned_text,
             )
 
-            # Handle response - check for different attribute names
-            # Try embeddings first (list format)
-            if hasattr(response, "embeddings") and response.embeddings:
-                embedding = response.embeddings
-                # Handle list of embeddings
-                if isinstance(embedding, list) and len(embedding) > 0:
-                    first_embedding = embedding[0]
-                    if hasattr(first_embedding, "values"):
-                        return first_embedding.values
-                    if hasattr(first_embedding, "embedding"):
-                        return first_embedding.embedding
-                    if isinstance(first_embedding, (list, tuple)):
-                        return list(first_embedding)
+            # Handle response — normalised access avoids Pylance stub mismatches.
+            # google-genai SDK may return ContentEmbedding objects (which have a
+            # .values attribute) or plain lists, depending on the version.
 
-            # Try embedding attribute (single embedding format)
-            if hasattr(response, "embedding"):
-                embedding = response.embedding
-                if hasattr(embedding, "values"):
-                    return embedding.values
-                if hasattr(embedding, "embedding"):
-                    return embedding.embedding
-                if isinstance(embedding, (list, tuple)):
-                    return list(embedding)
+            # Path A: response.embeddings  → list[ContentEmbedding]
+            raw_embeddings: list | None = getattr(response, "embeddings", None)
+            if raw_embeddings and isinstance(raw_embeddings, list) and len(raw_embeddings) > 0:
+                first = raw_embeddings[0]
+                vals = getattr(first, "values", None)
+                if vals is not None:
+                    return list(vals)
+                # Older SDK versions may nest a further .embedding attribute
+                # Type stubs may not include this attribute, so use getattr with fallback
+                nested = getattr(first, "embedding", None)
+                if nested is not None:
+                    return list(nested) if not isinstance(nested, list) else nested
+                if isinstance(first, (list, tuple)):
+                    return list(first)
+
+            # Path B: response.embedding  → ContentEmbedding (single)
+            raw_single: list | None = getattr(response, "embedding", None)
+            if raw_single is not None:
+                vals = getattr(raw_single, "values", None)
+                if vals is not None:
+                    return list(vals)
+                # Type stubs may not include this attribute
+                nested = getattr(raw_single, "embedding", None)
+                if nested is not None:
+                    return list(nested) if not isinstance(nested, list) else nested
+                if isinstance(raw_single, (list, tuple)):
+                    return list(raw_single)
 
             # Handle dict-like response
             if hasattr(response, "__dict__"):
@@ -169,22 +187,28 @@ class JarvisMemory:
                             if isinstance(item, (list, tuple)):
                                 return list(item)
 
-            print("[Jarvis Memory] ⚠️ Failed to extract embedding from response")  # Jarvis: embedding extraction failed
+            print("[Jarvis Memory] [WARN] Failed to extract embedding from response")  # Jarvis: embedding extraction failed
             return None
 
         except Exception as exc:
-            print(f"[Jarvis Memory] ⚠️ Failed to create embedding: {exc}")  # Jarvis: embedding service unavailable
+            print(f"[Jarvis Memory] [WARN] Failed to create embedding: {exc}")  # Jarvis: embedding service unavailable
             return None
 
     def _create_chroma_client(self):
         if chromadb is None:
             raise ImportError("chromadb is not installed")
 
+        # Use the dedicated chroma_store/ subdirectory so chromadb 1.1.1's Rust
+        # SQLite engine never encounters the legacy schema written by older versions.
+        CHROMA_STORE_DIR.mkdir(parents=True, exist_ok=True)
+
         if hasattr(chromadb, "PersistentClient"):
-            return chromadb.PersistentClient(path=str(self.memory_dir))
+            return chromadb.PersistentClient(path=str(CHROMA_STORE_DIR))
 
         if hasattr(chromadb, "Client") and Settings is not None:
-            return chromadb.Client(Settings(persist_directory=str(self.memory_dir), chroma_db_impl="duckdb+parquet"))
+            return chromadb.Client(
+                Settings(persist_directory=str(CHROMA_STORE_DIR), chroma_db_impl="duckdb+parquet")
+            )
 
         raise RuntimeError("Unsupported chromadb client API")
 
@@ -198,7 +222,7 @@ class JarvisMemory:
                 name=LONG_TERM_COLLECTION_NAME,
             )
         except Exception as exc:
-            print(f"[Jarvis Memory] ⚠️ Failed to initialize long-term ChromaDB: {exc}")  # Jarvis: long-term recall is disabled
+            print(f"[Jarvis Memory] [WARN] Failed to initialize long-term ChromaDB: {exc}")  # Jarvis: long-term recall is disabled
             self._chroma_client = None
             self._chroma_collection = None
 
@@ -221,7 +245,7 @@ class JarvisMemory:
                 self._short_term_conn.commit()
             return True
         except Exception as exc:
-            print(f"[Jarvis Memory] ⚠️ Failed to save short-term interaction: {exc}")  # Jarvis: short-term memory write failed
+            print(f"[Jarvis Memory] [WARN] Failed to save short-term interaction: {exc}")  # Jarvis: short-term memory write failed
             return False
 
     def get_recent_context(self, limit: int = 5) -> list[dict]:
@@ -246,7 +270,7 @@ class JarvisMemory:
             ]
             return list(reversed(context))
         except Exception as exc:
-            print(f"[Jarvis Memory] ⚠️ Failed to read short-term context: {exc}")  # Jarvis: read failed, but I can continue
+            print(f"[Jarvis Memory] [WARN] Failed to read short-term context: {exc}")  # Jarvis: read failed, but I can continue
             return []
 
     def clear_short_term(self) -> None:
@@ -259,7 +283,7 @@ class JarvisMemory:
                 cursor.execute("DELETE FROM short_term_memory")
                 self._short_term_conn.commit()
         except Exception as exc:
-            print(f"[Jarvis Memory] ⚠️ Failed to clear short-term memory: {exc}")  # Jarvis: cleanup failed
+            print(f"[Jarvis Memory] [WARN] Failed to clear short-term memory: {exc}")  # Jarvis: cleanup failed
 
     def store_permanent_fact(self, fact_text: str, metadata: dict | None = None) -> list[str]:
         if self._chroma_collection is None or self._genai_client is None:
@@ -272,7 +296,7 @@ class JarvisMemory:
         try:
             embedding = self._embed_text(text)
             if not embedding:
-                print("[Jarvis Memory] ⚠️ Failed to get embedding for permanent fact.")  # Jarvis: long-term store failed
+                print("[Jarvis Memory] [WARN] Failed to get embedding for permanent fact.")  # Jarvis: long-term store failed
                 return []
 
             item_id = str(uuid4())
@@ -284,7 +308,7 @@ class JarvisMemory:
             )
             return [item_id]
         except Exception as exc:
-            print(f"[Jarvis Memory] ⚠️ Failed to store permanent fact: {exc}")  # Jarvis: long-term store failed
+            print(f"[Jarvis Memory] [WARN] Failed to store permanent fact: {exc}")  # Jarvis: long-term store failed
             return []
 
     def recall_relevant_facts(self, query_text: str, n_results: int = 3) -> list[dict]:
@@ -298,7 +322,7 @@ class JarvisMemory:
         try:
             embedding = self._embed_text(query)
             if not embedding:
-                print("[Jarvis Memory] ⚠️ Failed to get embedding for query.")  # Jarvis: semantic recall failed
+                print("[Jarvis Memory] [WARN] Failed to get embedding for query.")  # Jarvis: semantic recall failed
                 return []
 
             results = self._chroma_collection.query(
@@ -306,22 +330,37 @@ class JarvisMemory:
                 n_results=n_results,
                 include=["documents", "metadatas", "distances"],
             )
-            documents = results.get("documents", [[]])[0]
-            metadatas = results.get("metadatas", [[]])[0]
-            distances = results.get("distances", [[]])[0]
+            # ChromaDB QueryResult values are TypedDict entries that may be None
+            # when the collection is empty or no results match.
+            # Guard against None before subscripting to avoid Pylance reportOptionalSubscript
+            _docs_raw: list[list[str]] | None = results.get("documents")
+            _meta_raw: list | None = results.get("metadatas")
+            _dist_raw: list[list[float]] | None = results.get("distances")
+            _docs_outer = _docs_raw if _docs_raw is not None else [[]]
+            _meta_outer = _meta_raw if _meta_raw is not None else [[]]
+            _dist_outer = _dist_raw if _dist_raw is not None else [[]]
+            documents = _docs_outer[0] if _docs_outer else []
+            metadatas = _meta_outer[0] if _meta_outer else []
+            distances = _dist_outer[0] if _dist_outer else []
 
             facts = []
-            for content, metadata, distance in zip(documents, metadatas, distances):
+            # Guard: ensure lists are not None before zip (Pylance reportArgumentType fix)
+            safe_docs = list(documents) if documents is not None else []
+            safe_metas = list(metadatas) if metadatas is not None else []
+            safe_dists = list(distances) if distances is not None else []
+            # Truncate to shortest list to avoid zip issues
+            min_len = min(len(safe_docs), len(safe_metas), len(safe_dists)) if safe_docs and safe_metas and safe_dists else 0
+            for i in range(min_len):
                 facts.append(
                     {
-                        "content": content,
-                        "metadata": metadata or {},
-                        "distance": distance,
+                        "content": safe_docs[i],
+                        "metadata": safe_metas[i] or {},
+                        "distance": safe_dists[i],
                     }
                 )
             return facts
         except Exception as exc:
-            print(f"[Jarvis Memory] ⚠️ Failed to recall long-term facts: {exc}")  # Jarvis: semantic recall failed
+            print(f"[Jarvis Memory] [WARN] Failed to recall long-term facts: {exc}")  # Jarvis: semantic recall failed
             return []
 
     def load_memory(self) -> dict:
@@ -330,22 +369,30 @@ class JarvisMemory:
 
         try:
             data = self._chroma_collection.get(include=["documents", "metadatas"])
-            documents = data.get("documents", [])
-            metadatas = data.get("metadatas", [])
+            # GetResult values are TypedDict fields; guard against None before use.
+            # Pylance: data.get() returns TypedDict entry that may be None
+            documents_raw = data.get("documents")
+            metadatas_raw = data.get("metadatas")
+            documents: list = documents_raw if documents_raw is not None else []
+            metadatas: list = metadatas_raw if metadatas_raw is not None else []
 
+            # Flatten nested lists produced by some chromadb versions
             if documents and isinstance(documents[0], list):
                 documents = documents[0]
             if metadatas and isinstance(metadatas[0], list):
                 metadatas = metadatas[0]
 
+            # Guard: ensure lists are not None before zip (Pylance reportArgumentType fix)
+            safe_docs = list(documents) if documents is not None else []
+            safe_metas = list(metadatas) if metadatas is not None else []
             facts = [
                 {"content": doc, "metadata": metadata or {}}
-                for doc, metadata in zip(documents, metadatas)
+                for doc, metadata in zip(safe_docs, safe_metas)
                 if isinstance(doc, str) and doc.strip()
             ]
             return {"facts": facts}
         except Exception as exc:
-            print(f"[Jarvis Memory] ⚠️ Failed to load memory facts: {exc}")  # Jarvis: loading memories failed
+            print(f"[Jarvis Memory] [WARN] Failed to load memory facts: {exc}")  # Jarvis: loading memories failed
             return {"facts": []}
 
     def update_memory(self, memory_update: dict) -> dict:
@@ -548,7 +595,7 @@ def should_extract_memory(user_text: str, jarvis_text: str, api_key: str = "") -
         return "YES" in result.upper()
 
     except Exception as exc:
-        print(f"[Jarvis Memory] ⚠️ Stage1 check failed: {exc}")  # Jarvis: memory relevance detection failed
+        print(f"[Jarvis Memory] [WARN] Stage1 check failed: {exc}")  # Jarvis: memory relevance detection failed
         return False
 
 
@@ -598,5 +645,5 @@ def extract_memory(user_text: str, jarvis_text: str, api_key: str = "") -> dict:
         return {}
     except Exception as exc:
         if "429" not in str(exc):
-            print(f"[Jarvis Memory] ⚠️ Extract failed: {exc}")  # Jarvis: extraction failed
+            print(f"[Jarvis Memory] [WARN] Extract failed: {exc}")  # Jarvis: extraction failed
         return {}
