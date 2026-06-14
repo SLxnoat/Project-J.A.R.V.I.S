@@ -6,6 +6,41 @@ import sys
 import traceback
 from pathlib import Path
 
+# ===== WINDOWS ENCODING PATCH START =====
+# Force UTF-8 on standard streams if possible, and override builtins.print to prevent UnicodeEncodeError
+for _stream in (sys.stdout, sys.stderr):
+    if _stream and hasattr(_stream, "reconfigure"):
+        try:
+            _stream.reconfigure(encoding="utf-8")
+        except Exception:
+            pass
+
+import builtins
+_original_print = builtins.print
+
+def _safe_print(*args, **kwargs):
+    file = kwargs.get("file", sys.stdout)
+    if file is None:
+        file = sys.stdout
+    encoding = getattr(file, "encoding", "utf-8") or "utf-8"
+    try:
+        sep = kwargs.get("sep", " ")
+        text = sep.join(str(arg) for arg in args)
+        text.encode(encoding)
+        _original_print(*args, **kwargs)
+    except UnicodeEncodeError:
+        safe_args = []
+        for arg in args:
+            if isinstance(arg, str):
+                safe_args.append(arg.encode(encoding, errors="replace").decode(encoding))
+            else:
+                safe_args.append(arg)
+        _original_print(*safe_args, **kwargs)
+
+builtins.print = _safe_print
+# ===== WINDOWS ENCODING PATCH END =====
+
+
 import sounddevice as sd
 from google import genai
 from google.genai import types
@@ -44,6 +79,17 @@ from actions.computer_control  import computer_control
 # Import memory manager for search result storage
 from memory.memory_manager import JarvisMemory
 from actions.game_updater      import game_updater
+
+# ===== CREWAI INTEGRATION PATCH START =====
+# Lazy import — only resolved on first crew_complex_task invocation.
+# Keeps startup time unaffected when CrewAI is not used.
+try:
+    from agent.crew_orchestration_engine import load_crew_engine, CrewOrchestrationEngine
+    _CREW_ENGINE_AVAILABLE = True
+except ImportError:
+    _CREW_ENGINE_AVAILABLE = False
+    CrewOrchestrationEngine = None  # type: ignore[assignment,misc]
+# ===== CREWAI INTEGRATION PATCH END =====
 
 
 def get_base_dir():
@@ -487,6 +533,36 @@ TOOL_DECLARATIONS = [
         "required": []
     }
 },
+    # ===== CREWAI INTEGRATION PATCH START =====
+    {
+        "name": "crew_complex_task",
+        "description": (
+            "Delegates a complex, multi-step goal to the CrewAI multi-agent orchestration engine "
+            "(ResearchAnalyst → SystemExecutor → QualityAssuranceReviewer pipeline). "
+            "Use when the user requests a task that requires: independent research AND system "
+            "execution AND quality verification in a single run. "
+            "Examples: 'Research the top 5 AI frameworks, then create a comparison report file on Desktop', "
+            "'Find today's weather in Tokyo and send a summary to my WhatsApp contact'. "
+            "DO NOT use for single-tool commands — use the specific tool directly instead. "
+            "DO NOT use for Steam/Epic tasks — use game_updater. "
+            "DO NOT use when agent_task is sufficient."
+        ),
+        "parameters": {
+            "type": "OBJECT",
+            "properties": {
+                "goal": {
+                    "type": "STRING",
+                    "description": "Complete natural-language description of the multi-step goal to accomplish."
+                },
+                "context": {
+                    "type": "STRING",
+                    "description": "Optional background context to ground the agents (user preferences, constraints, prior conversation facts)."
+                }
+            },
+            "required": ["goal"]
+        }
+    },
+    # ===== CREWAI INTEGRATION PATCH END =====
     {
     "name": "shutdown_jarvis",
     "description": (
@@ -545,6 +621,10 @@ class JarvisLive:
         self._speaking_lock = threading.Lock()
         self.ui.on_text_command = self._on_text_command
         self.rag_processor = rag_processor or JarvisRAGProcessor()
+        # ===== CREWAI INTEGRATION PATCH START =====
+        # Lazy-initialised on first crew_complex_task call — zero startup cost.
+        self._crew_engine: "CrewOrchestrationEngine | None" = None
+        # ===== CREWAI INTEGRATION PATCH END =====
 
     def _drop_oldest_queue_item(self, queue):
         """Helper to drop oldest queue item when full."""
@@ -717,6 +797,53 @@ class JarvisLive:
                 priority = priority_map.get(args.get("priority", "normal").lower(), TaskPriority.NORMAL)
                 task_id  = get_queue().submit(goal=args.get("goal", ""), priority=priority, speak=self.speak)
                 result   = f"Task started (ID: {task_id})."
+
+            # ===== CREWAI INTEGRATION PATCH START =====
+            elif name == "crew_complex_task":
+                if not _CREW_ENGINE_AVAILABLE:
+                    result = "[CREW_ERROR] CrewAI is not installed. Run: pip install crewai langchain-core"
+                else:
+                    # Lazy-initialise the engine on first invocation.
+                    if self._crew_engine is None:
+                        try:
+                            self._crew_engine = load_crew_engine()
+                            print("[JARVIS] 🤖 CrewOrchestrationEngine initialised.")
+                        except Exception as _ce:
+                            result = f"[CREW_ERROR] Engine init failed: {_ce}"
+                            self._crew_engine = None
+
+                    if self._crew_engine is not None:
+                        goal    = args.get("goal", "")
+                        context = args.get("context", "")
+                        self.ui.write_log(f"CREW: Starting multi-agent run — {goal[:60]}...")
+                        self.speak(
+                            "Sir, I am dispatching this to the multi-agent crew. "
+                            "I will report back when the pipeline completes."
+                        )
+                        # Run synchronously inside executor so the event loop is not blocked.
+                        crew_result = await loop.run_in_executor(
+                            None,
+                            lambda: self._crew_engine.run(goal=goal, context=context),
+                        )
+                        if crew_result.success:
+                            result = (
+                                f"Crew pipeline completed in "
+                                f"{crew_result.execution_time_seconds:.1f}s.\n\n"
+                                f"{crew_result.final_output}"
+                            )
+                            self.ui.write_log(
+                                f"CREW: ✅ Done ({crew_result.total_tokens_used} tokens, "
+                                f"{crew_result.execution_time_seconds:.1f}s)"
+                            )
+                        else:
+                            result = (
+                                f"Crew pipeline encountered an issue: "
+                                f"{crew_result.error or 'Unknown error.'}"
+                            )
+                            self.ui.write_log(
+                                f"CREW: ❌ Failed — {crew_result.error or 'unknown'}"
+                            )
+            # ===== CREWAI INTEGRATION PATCH END =====
 
             elif name == "web_search":
                 r = await loop.run_in_executor(None, lambda: web_search_action(parameters=args, player=self.ui))
