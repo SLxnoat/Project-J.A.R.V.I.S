@@ -45,8 +45,8 @@ def _serper_search(query: str, max_results: int = 3) -> list[dict]:
                 from or_client import Client
                 client = Client(api_key=openrouter_key)
                 result = client.chat(
-                    f"Search the web for: {query}",
-                    system="You are a web search assistant. Provide factually accurate results with sources.",
+                    f"Search objective: Retrieve high-fidelity, verified information for: {query}",
+                    system="You are a professional research intelligence agent. Provide factually accurate, structured search summaries with URL sources and inline citations.",
                     max_tokens=500,
                 )
                 return [

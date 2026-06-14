@@ -568,16 +568,24 @@ def _detect_action(description: str) -> dict:
     available = ", ".join(sorted(ACTION_MAP.keys())) + \
                 ", volume_set, type_text, press_key, reload_n"
 
-    prompt = f"""You are an intent detector for a computer control assistant.
-The user issued a command (possibly in any language): "{description}"
-Available actions: {available}
-Return ONLY a valid JSON object: {{"action": "action_name", "value": null_or_value}}
-Rules:
-- For volume_set: value is an integer 0-100.
-- For type_text: value is the exact text to type.
-- For press_key: value is the key name (e.g. "f5", "tab", "enter").
-- For reload_n: value is an integer.
-- Return ONLY the JSON, no explanation, no markdown."""
+    prompt = f"""You are an expert intent parser for an operating system control module.
+Identify the requested action and value from the user's natural language command.
+
+## COMMAND CONTEXT
+- Natural Language Input (can be any language): "{description}"
+- Allowed Actions: {available}
+
+## OUTPUT JSON SCHEMA CONTRACT
+Return ONLY a valid JSON object. Do not include markdown code fences (no ```json), do not use backticks, and provide no commentary.
+{{"action": "action_name", "value": null_or_parsed_value}}
+
+## REFRESHED PARSING RULES
+- For `volume_set`: `value` must be parsed as an integer between 0 and 100 representing the volume percentage.
+- For `type_text`: `value` must be the exact string literals the user intends to write.
+- For `press_key`: `value` must be the lowercased key name (e.g. "f5", "tab", "enter", "backspace").
+- For `reload_n`: `value` must be an integer indicating how many times to repeat the reload action.
+- If the command does not map to any action, set `action` to null and `value` to null.
+"""
 
     try:
         raw  = client.chat_json(prompt, system="Return only valid JSON. No extra text.")

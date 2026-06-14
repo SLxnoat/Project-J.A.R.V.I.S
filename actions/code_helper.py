@@ -162,14 +162,15 @@ def _write(description: str, language: str, output_path: str, player=None) -> tu
     lang  = language or "python"
     model = _get_gemini()
 
-    prompt = f"""You are an expert {lang} developer.
-Write clean, working, well-commented {lang} code for the description below.
+    prompt = f"""You are a World-Class Senior {lang} Developer.
+Write clean, robust, and production-ready {lang} code to accomplish the description below.
 
-Rules:
-- Output ONLY the code. No explanation, no markdown, no backticks.
-- Add helpful inline comments.
-- Handle errors and edge cases properly.
-- Use modern best practices.
+## RULES
+- Output ONLY the raw code. Do NOT wrap in markdown fences (```), do not use backticks, and provide no conversational introductions or explanations.
+- Write complete, runnable code with no placeholders or TODOs.
+- Handle potential errors and edge cases defensively.
+- Follow standard, modern {lang} best practices, structural formatting, and PEP rules.
+- Add descriptive inline comments explaining non-obvious logic.
 
 Description: {description}
 
@@ -184,19 +185,20 @@ Code:"""
 
 def _fix_code(code: str, error_output: str, description: str) -> str:
     model  = _get_gemini()
-    prompt = f"""You are an expert debugger.
-The code below failed with the following error. Fix it.
-Return ONLY the corrected code — no explanation, no markdown, no backticks.
+    prompt = f"""You are an expert systems debugger.
+The following program failed with a runtime error. Analyze the error trace and correct the code to resolve it completely.
+- Output ONLY the fixed raw code. Do NOT wrap in markdown fences, do not use backticks, and provide no explanations.
+- Retain all other correct and working logic from the broken version.
 
-Original goal: {description}
+Original Target Goal: {description}
 
-Error:
+Error Traceback:
 {error_output[:2000]}
 
-Broken code:
+Broken Code:
 {code}
 
-Fixed code:"""
+Fixed Code:"""
 
     response = model.generate_content(prompt)
     return _clean_code(response.text)
@@ -318,16 +320,17 @@ def _edit_action(file_path, instruction, player) -> str:
         player.write_log("[Code] Editing file...")
 
     model  = _get_gemini()
-    prompt = f"""You are an expert code editor.
-Apply the following change to the code below.
-Return ONLY the complete updated code — no explanation, no markdown, no backticks.
+    prompt = f"""You are a senior refactoring engineer.
+Modify the following codebase to apply the requested change instruction.
+- Output ONLY the complete, fully updated raw code. Do NOT wrap in markdown fences, do not use backticks, and provide no explanations.
+- Ensure the rest of the code retains its original features and structure.
 
-Change: {instruction}
+Requested Change Instruction: {instruction}
 
-Original code:
+Original Code:
 {content}
 
-Updated code:"""
+Updated Code:"""
 
     try:
         response = model.generate_content(prompt)
@@ -352,9 +355,10 @@ def _explain_action(file_path, code, player) -> str:
         player.write_log("[Code] Analyzing code...")
 
     model  = _get_gemini()
-    prompt = f"""Explain what this code does in simple, clear language.
-Focus on: what it does, how it works, and any important details.
-Be concise — 3 to 6 sentences maximum.
+    prompt = f"""Analyze the provided code and explain its functionality, architecture, and behavior.
+- Provide a clear, natural, and concise explanation in simple technical terms.
+- Focus on: what the code accomplishes, its structural flow, and any critical dependencies or side effects.
+- Keep the summary to a maximum of 3 to 6 sentences.
 
 Code:
 {code[:4000]}
@@ -394,19 +398,19 @@ def _optimize_action(file_path, code, language, output_path, player) -> str:
     lang  = language or "python"
     model = _get_gemini()
 
-    prompt = f"""You are an expert {lang} developer and code reviewer.
-Optimize the following code for:
-1. Performance — eliminate unnecessary operations, use efficient data structures
-2. Readability — clear variable names, proper formatting, logical structure
-3. Best practices — modern {lang} patterns, error handling, type hints if applicable
-4. Remove dead code, redundant comments, and unnecessary complexity
+    prompt = f"""You are a world-class performance and quality assurance engineer specializing in {lang}.
+Optimize the following code according to these criteria:
+1. Performance: Eliminate redundant computations, optimize loops, and choose efficient data structures.
+2. Readability: Use clear naming conventions, clean spacing, and simple structures.
+3. Quality: Implement robust error handling and type annotations where appropriate.
+4. Complexity: Eliminate dead code, redundant comments, and unnecessary layers.
 
-Return ONLY the optimized code — no explanation, no markdown, no backticks.
+- Output ONLY the optimized raw code. Do NOT wrap in markdown fences, do not use backticks, and provide no explanations.
 
-Original code:
+Original Code:
 {code[:6000]}
 
-Optimized code:"""
+Optimized Code:"""
 
     try:
         response  = model.generate_content(prompt)
@@ -469,17 +473,21 @@ def _screen_debug_action(description, file_path, player, speak=None) -> str:
         if file_content:
             context = f"\n\nAdditionally, here is the related file content:\n```\n{file_content[:4000]}\n```"
 
-        analysis_prompt = f"""You are an expert programmer and debugger analyzing a screenshot.
+        analysis_prompt = f"""You are an expert systems analyst and debugger. Analyze the provided screenshot and context to diagnose issues.
 
-User's question: {user_question}{context}
+## TASK CONTEXT
+- User Question: {user_question}
+{f"- Related File Contents: {context}" if context else ""}
 
-Please:
-1. Identify any errors, exceptions, or problems visible on the screen
-2. Explain what is causing the problem in simple terms
-3. Provide a concrete fix or solution
-4. If there's code visible, show the corrected version
+## INSTRUCTIONS
+1. Pinpoint and diagnose any errors, stack traces, warnings, or misbehaviors visible in the screenshot.
+2. Provide a clear, technical explanation of the root cause in simple terms.
+3. Offer a concrete, step-by-step fix or code patch.
+4. If code is shown on screen, output the corrected version of the code block.
+5. If there is a visible error message, quote it verbatim in your response.
 
-Be specific and actionable. If you see an error message, quote it exactly."""
+Be precise, highly specific, and actionable.
+"""
 
         contents = [
             types.Part.from_bytes(data=image_bytes, mime_type="image/png"),

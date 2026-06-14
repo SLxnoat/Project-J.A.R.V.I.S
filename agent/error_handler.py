@@ -22,29 +22,30 @@ class ErrorDecision(Enum):
     ABORT       = "abort"    
 
 
-ERROR_ANALYST_PROMPT = """You are the error recovery module of MARK XXV AI assistant.
+ERROR_ANALYST_PROMPT = """You are the Diagnostics and Recovery Engine of the J.A.R.V.I.S. (Mark XXXIX) Agentic System.
+A step in the execution plan has failed. Analyze the execution context, tool parameters, and error traceback to decide the optimal recovery path.
 
-A task step has failed. Analyze the error and decide what to do.
+## RECOVERY TAXONOMY
+- `retry`: Select this ONLY for transient, non-persistent issues (e.g. network timeout, temporary file lock, API rate limiting, timing race condition). The action is structurally correct and likely to succeed if repeated.
+- `skip`: Select this if the failed step is non-essential, and subsequent steps can still succeed or complete the overall goal without it.
+- `replan`: Select this if the step failed due to logical errors, incorrect tool parameters, invalid file paths, syntax errors, or wrong tool selection. A new approach or a different tool configuration is required.
+- `abort`: Select this if the task is fundamentally impossible, breaches security boundaries, requires missing permissions, or is unsafe to continue.
 
-DECISIONS:
-- retry   : Transient error (network timeout, temporary file lock, race condition).
-             The same step can succeed if tried again.
-- skip    : This step is not critical and the task can succeed without it.
-- replan  : The approach was wrong. A different tool or method should be tried.
-- abort   : The task is fundamentally impossible or unsafe to continue.
+## DIAGNOSTIC INSTRUCTIONS
+- Formulate a precise, 1-sentence diagnostic explanation of the root cause.
+- If decision is `replan`, provide a detailed `fix_suggestion` detailing what alternative tool or parameters should be tried (e.g., "Use web_search to find the correct download link instead of downloading directly").
+- If decision is `retry`, set `max_retries` to 1 or 2 (maximum 2). For all other decisions, set to 0.
+- Formulate a polite, calm notification message to the user (`user_message`) of maximum 15 words, addressing them as "sir".
 
-Also provide:
-- A brief explanation of WHY it failed (1 sentence)
-- A fix suggestion if decision is replan (what to try instead)
-- Max retries: how many times to retry if decision is retry (1 or 2)
+## OUTPUT JSON SCHEMA CONTRACT
+Return ONLY a valid JSON object. Do not include markdown formatting (e.g., no ```json), no explanations, and no trailing text.
 
-Return ONLY valid JSON:
 {
   "decision": "retry|skip|replan|abort",
-  "reason": "why it failed",
-  "fix_suggestion": "what to try instead (for replan)",
-  "max_retries": 1,
-  "user_message": "Short message to tell the user (max 15 words)"
+  "reason": "Precise root cause description.",
+  "fix_suggestion": "Actionable correction steps if replanning, otherwise empty string.",
+  "max_retries": 0,
+  "user_message": "Calm, polite update to the user, sir."
 }
 """
 
@@ -153,18 +154,19 @@ def generate_fix(step: dict, error: str, fix_suggestion: str) -> dict:
     genai.configure(api_key=_get_api_key())
     model = genai.GenerativeModel(model_name="gemini-2.0-flash")
 
-    prompt = f"""A task step failed. Generate a replacement step.
+    prompt = f"""You are an expert debugger and recovery agent. A task step has failed, and we need a revised solution.
 
-Original step:
-Tool: {step.get('tool')}
-Description: {step.get('description')}
-Parameters: {json.dumps(step.get('parameters', {}), indent=2)}
+## FAILURE CONTEXT
+- Failed Step: Tool [{step.get('tool')}] doing "{step.get('description')}"
+- Parameters: {json.dumps(step.get('parameters', {}), indent=2)}
+- Error Details: {error[:300]}
+- Recovery Fix Suggestion: {fix_suggestion}
 
-Error: {error[:300]}
-Fix suggestion: {fix_suggestion}
-
-Write a Python script that accomplishes the same goal differently.
-Return ONLY the Python code, no explanation."""
+## INSTRUCTION
+Write a robust, fully working Python script that achieves the intended goal while resolving the error.
+- Implement correct imports, handle edge cases, and add appropriate error checking.
+- Do NOT output any explanations, markdown blocks, or comments. Output ONLY raw, executable Python code.
+"""
 
     try:
         response = model.generate_content(prompt)

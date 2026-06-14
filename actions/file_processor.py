@@ -90,12 +90,12 @@ def _process_image(path: Path, action: str, params: dict, speak=None) -> str:
             model  = _gemini_client()
             img    = Image.open(path)
             prompt = {
-                "describe": "Describe this image in detail.",
-                "ocr":      "Extract all text visible in this image. Return only the text, formatted clearly.",
-                "analyze":  "Analyze this image thoroughly: objects, colors, composition, any text, context.",
-                "read":     "Read all text in this image, preserving structure and formatting.",
-                "extract_text": "Extract all text from this image.",
-            }.get(action, "Describe this image.")
+                "describe": "Provide a comprehensive, high-fidelity visual description of this image in clear technical language.",
+                "ocr":      "Perform high-accuracy optical character recognition (OCR) to extract all text visible in this image. Return ONLY the transcribed text, maintaining its exact visual hierarchy and layout.",
+                "analyze":  "Perform a deep analytical evaluation of this image: identify objects, color palettes, composition design, text elements, and conceptual context.",
+                "read":     "Transcribe and read all text from this image, preserving the structural paragraphs, tables, and alignment formatting.",
+                "extract_text": "Extract all text from this image cleanly without adding commentary.",
+            }.get(action, "Provide a detailed analysis of this image.")
 
             if params.get("instruction"):
                 prompt = params["instruction"]
@@ -201,10 +201,10 @@ def _process_pdf(path: Path, action: str, params: dict, speak=None) -> str:
             return f"Text extracted ({len(text)} chars). Saved: {out.name}"
 
         prompt_map = {
-            "summarize":      f"Summarize this PDF document concisely:\n\n{text}",
-            "analyze":        f"Analyze this document thoroughly:\n\n{text}",
-            "translate_hint": f"What language is this document in and what does it say? Summarize:\n\n{text}",
-            "reformat":       f"Reformat this text cleanly with proper structure:\n\n{text}",
+            "summarize":      f"Provide a concise, high-fidelity executive summary of the following PDF document, highlighting key findings and themes:\n\n{text}",
+            "analyze":        f"Perform a comprehensive analytical review of this document, evaluating its structure, core arguments, data, and context:\n\n{text}",
+            "translate_hint": f"Identify the primary language of this document, summarize its contents, and provide a translation preview:\n\n{text}",
+            "reformat":       f"Reformat the following extracted text cleanly, maintaining logical hierarchy, paragraphs, and semantic structure:\n\n{text}",
         }
         try:
             model    = _gemini_client()
@@ -282,12 +282,12 @@ def _process_text_doc(path: Path, file_type: str, action: str,
 
     instruction = params.get("instruction", "")
     prompt_map  = {
-        "summarize":  f"Summarize this document concisely:\n\n{content[:40000]}",
-        "analyze":    f"Analyze this document:\n\n{content[:40000]}",
-        "reformat":   f"Reformat this text with clean structure, proper headings and paragraphs:\n\n{content[:40000]}",
-        "fix":        f"Fix grammar, spelling and style issues in this text:\n\n{content[:40000]}",
-        "translate_hint": f"What language is this and what does it say? Summarize:\n\n{content[:10000]}",
-        "to_bullet":  f"Convert this text into a clear bullet-point summary:\n\n{content[:40000]}",
+        "summarize":  f"Provide a structured, concise executive summary of the following document:\n\n{content[:40000]}",
+        "analyze":    f"Perform a detailed analysis of this document, outlining its theme, core arguments, and critical details:\n\n{content[:40000]}",
+        "reformat":   f"Reformat this text with a clean document structure, applying logical headings, paragraphs, and typographic hierarchy:\n\n{content[:40000]}",
+        "fix":        f"Edit this text to correct all grammatical errors, spelling mistakes, and stylistic inconsistencies, maintaining the original voice:\n\n{content[:40000]}",
+        "translate_hint": f"Identify the source language and translate/summarize the core message of this document:\n\n{content[:10000]}",
+        "to_bullet":  f"Synthesize the following text into a clear, high-impact bulleted summary of key takeaways:\n\n{content[:40000]}",
         "custom":     f"{instruction}\n\n{content[:40000]}",
     }
 
@@ -340,9 +340,12 @@ def _process_data(path: Path, file_type: str, action: str,
 
     if action == "analyze":
         preview = df.head(50).to_string()
-        prompt  = (f"Analyze this dataset. Columns: {list(df.columns)}\n"
-                   f"Rows: {len(df)}\nPreview:\n{preview}\n\n"
-                   f"Give insights, patterns, and notable findings.")
+        prompt  = (f"Perform a comprehensive data analysis on this dataset.\n"
+                   f"Dataset Schema (Columns): {list(df.columns)}\n"
+                   f"Total Rows: {len(df)}\n"
+                   f"Dataset Preview:\n{preview}\n\n"
+                   f"INSTRUCTIONS:\n"
+                   f"Identify key statistical insights, anomalies, correlations, trends, and notable patterns in the data.")
         try:
             model    = _gemini_client()
             response = model.generate_content(prompt)
@@ -400,7 +403,10 @@ def _process_data(path: Path, file_type: str, action: str,
     try:
         model    = _gemini_client()
         response = model.generate_content(
-            f"Task: {action}\nDataset ({len(df)} rows, cols: {list(df.columns)}):\n{preview}"
+            f"Objective: {action}\n"
+            f"Dataset Context: {len(df)} total rows, Columns: {list(df.columns)}\n"
+            f"Data Preview Snippet:\n{preview}\n\n"
+            f"Please execute the requested task analytically and output a concise report."
         )
         return response.text.strip()
     except Exception as e:
@@ -425,9 +431,9 @@ def _process_json(path: Path, action: str, params: dict, speak=None) -> str:
 
     if action in ("analyze", "summarize", "extract"):
         preview = json.dumps(data, indent=2, ensure_ascii=False)[:8000]
-        prompt  = f"Task: {action} this JSON data:\n{preview}"
+        prompt  = f"Analyze and process the following JSON dataset according to action: {action}.\nJSON Data:\n{preview}"
         if params.get("instruction"):
-            prompt = f"{params['instruction']}\n\nJSON data:\n{preview}"
+            prompt = f"Instruction: {params['instruction']}\n\nTarget JSON Data:\n{preview}"
         try:
             model    = _gemini_client()
             response = model.generate_content(prompt)
@@ -475,13 +481,13 @@ def _process_code(path: Path, action: str, params: dict, speak=None) -> str:
         return f"Code file: {lines} lines, {words} words, {_file_size_str(path)}"
 
     prompt_map = {
-        "explain":   f"Explain this {ext} code clearly:\n\n```{ext}\n{content[:30000]}\n```",
-        "review":    f"Review this {ext} code for bugs, issues, and improvements:\n\n```{ext}\n{content[:30000]}\n```",
-        "fix":       f"Fix any bugs in this {ext} code and return the corrected version:\n\n```{ext}\n{content[:30000]}\n```",
-        "optimize":  f"Optimize this {ext} code for performance and readability:\n\n```{ext}\n{content[:30000]}\n```",
-        "document":  f"Add proper documentation/comments to this {ext} code:\n\n```{ext}\n{content[:30000]}\n```",
-        "summarize": f"Summarize what this {ext} code does:\n\n```{ext}\n{content[:30000]}\n```",
-        "test":      f"Write unit tests for this {ext} code:\n\n```{ext}\n{content[:30000]}\n```",
+        "explain":   f"Analyze and explain the logic, architecture, and operation of this {ext} code:\n\n```{ext}\n{content[:30000]}\n```",
+        "review":    f"Perform a comprehensive code review of this {ext} code, identifying bugs, security vulnerabilities, and code smell:\n\n```{ext}\n{content[:30000]}\n```",
+        "fix":       f"Debug and correct this {ext} code. Return ONLY the fixed code without explanations or markdown fences unless explicitly requested:\n\n```{ext}\n{content[:30000]}\n```",
+        "optimize":  f"Optimize this {ext} code for algorithmic performance, CPU/memory efficiency, and readability:\n\n```{ext}\n{content[:30000]}\n```",
+        "document":  f"Document this {ext} code. Add descriptive docstrings, type annotations, and clear inline comments:\n\n```{ext}\n{content[:30000]}\n```",
+        "summarize": f"Summarize the core functionality, inputs, outputs, and purpose of this {ext} code:\n\n```{ext}\n{content[:30000]}\n```",
+        "test":      f"Write comprehensive unit tests with edge cases for this {ext} code:\n\n```{ext}\n{content[:30000]}\n```",
     }
 
     instruction = params.get("instruction", "")
@@ -535,7 +541,7 @@ def _process_audio(path: Path, action: str, params: dict, speak=None) -> str:
                 "aac": "audio/aac", "flac": "audio/flac",
             }.get(path.suffix.lstrip(".").lower(), "audio/mpeg")
             response = model.generate_content([
-                "Transcribe all speech in this audio file accurately.",
+                "Perform high-fidelity transcription of all speech in this audio file. Output ONLY the transcribed text. Do not add annotations, filler text, or description.",
                 {"mime_type": mime, "data": content}
             ])
             result = response.text.strip()
@@ -765,7 +771,7 @@ def _process_pptx(path: Path, action: str, params: dict, speak=None) -> str:
             return f"Text extracted. Saved: {out.name}"
         try:
             model    = _gemini_client()
-            prompt   = f"{'Summarize' if action == 'summarize' else 'Analyze'} this presentation:\n{text[:30000]}"
+            prompt   = f"Perform a high-quality {'summarization' if action == 'summarize' else 'analytical evaluation'} of the slides in this presentation:\n{text[:30000]}"
             response = model.generate_content(prompt)
             return response.text.strip()
         except Exception as e:
@@ -798,7 +804,7 @@ def file_processor(parameters: dict, player=None, speak=None) -> str:
         try:
             content = path.read_text(encoding="utf-8", errors="ignore")[:10000]
             model   = _gemini_client()
-            prompt  = f"File: {path.name}\nContent preview:\n{content}\n\nTask: {action or instruction or 'Describe what this file contains and what can be done with it.'}"
+            prompt  = f"Analyzing File: {path.name}\nContent Preview:\n{content}\n\nInstruction/Task: {action or instruction or 'Provide a high-level description of what this file is, its encoding structure, and how its contents can be utilized.'}"
             response = model.generate_content(prompt)
             return response.text.strip()
         except Exception as e:

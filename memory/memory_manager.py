@@ -536,15 +536,12 @@ def should_extract_memory(user_text: str, jarvis_text: str, api_key: str = "") -
         combined = f"User: {user_text[:300]}\nJarvis: {jarvis_text[:1000]}"
 
         result = client.chat(
-            f"Does this conversation contain ANY of the following?\n"
-            f"- Personal facts (name, age, city, job, birthday, nationality)\n"
-            f"- Preferences or favorites (food, color, music, sport, game, film, book, etc.)\n"
-            f"- Active projects or goals the user is working on\n"
-            f"- People in the user's life (friends, family, partner, colleagues)\n"
-            f"- Things the user wants to do or buy in the future\n"
-            f"- Any other fact worth remembering long-term\n\n"
-            f"Reply only YES or NO.\n\nConversation:\n{combined}",
-            system="You are a memory relevance checker. Reply only YES or NO.",
+            f"Does the following dialogue contain any long-term memorable facts about the user?\n"
+            f"Memorable facts include: personal descriptors (identity, occupation, location), preferences/favorites, "
+            f"active projects/tasks, relationships, future plans/wishes, or habits.\n\n"
+            f"Dialogue:\n{combined}\n\n"
+            f"Reply ONLY with 'YES' if memorable facts are present, or 'NO' if the conversation is purely transactional or transient.",
+            system="You are a binary classification filter. Respond ONLY with YES or NO.",
             max_tokens=5,
             temperature=0.0,
         )
@@ -562,34 +559,29 @@ def extract_memory(user_text: str, jarvis_text: str, api_key: str = "") -> dict:
         combined = f"User: {user_text[:600]}\nJarvis: {jarvis_text[:300]}"
 
         raw = client.chat(
-            f"Extract ALL memorable personal facts from this conversation. Any language.\n"
-            f"Return ONLY valid JSON. Use {{}} if truly nothing is worth saving.\n\n"
-            f"Category guide:\n"
-            f"  identity      → name, age, birthday, city, country, job, school, nationality, language\n"
-            f"  preferences   → ANY favorite or preferred thing:\n"
-            f"                  favorite_food, favorite_color, favorite_music, favorite_film,\n"
-            f"                  favorite_game, favorite_sport, favorite_book, favorite_artist,\n"
-            f"                  favorite_country, hobbies, interests, dislikes, etc.\n"
-            f"  projects      → projects being built, ongoing work, goals, ideas in progress\n"
-            f"                  (e.g. mark_xxv: 'Building a JARVIS-like AI assistant')\n"
-            f"  relationships → people mentioned: friends, family, partner, colleagues\n"
-            f"                  (e.g. best_friend_ali: 'Best friend, met in university')\n"
-            f"  wishes        → future plans, things to buy, travel plans, dreams\n"
-            f"  notes         → anything else worth remembering (habits, schedule, etc.)\n\n"
-            f"IMPORTANT:\n"
-            f"- Be LIBERAL: if something MIGHT be worth remembering, include it.\n"
-            f"- Extract from BOTH user and Jarvis turns.\n"
-            f"- Skip: weather, reminders, search results, one-time commands.\n"
-            f"- Use concise English values regardless of conversation language.\n\n"
-            f"Format:\n"
+            f"Extract all long-term memorable facts from this dialogue. Supports any language inputs, but output values in English.\n"
+            f"Return ONLY a valid JSON object. Return {{}} if no relevant information is present.\n\n"
+            f"## CATEGORY GUIDE:\n"
+            f"  - identity: personal descriptors (e.g., name, age, city, occupation, nationality)\n"
+            f"  - preferences: preferred/disliked items (e.g., favorite_food, favorite_music, hobbies)\n"
+            f"  - projects: active work, software engineering, tasks, ideas in progress (e.g., mark_xxv: 'Building JARVIS AI')\n"
+            f"  - relationships: named or described acquaintances, family, friends, colleagues (e.g., colleague_bob: 'Lead dev')\n"
+            f"  - wishes: future plans, destinations to travel, items to buy, dreams\n"
+            f"  - notes: habits, daily schedule, general observations worth saving\n\n"
+            f"## EXTRACTION PROTOCOL:\n"
+            f"- Be comprehensive and liberal: capture any detail that builds personalization.\n"
+            f"- Analyze both user statements and assistant declarations.\n"
+            f"- Ignore transient tasks (weather requests, search results, immediate shell commands, etc.).\n"
+            f"- Output concise, descriptive values in English.\n\n"
+            f"## JSON CONTRACT FORMAT:\n"
             f'{{"identity":{{"name":{{"value":"Ali"}}}},\n'
             f' "preferences":{{"favorite_color":{{"value":"blue"}}}},\n'
             f' "projects":{{"mark_xxv":{{"value":"JARVIS-like AI assistant"}}}},\n'
             f' "relationships":{{"friend_yusuf":{{"value":"close friend"}}}},\n'
             f' "wishes":{{"buy_guitar":{{"value":"wants an acoustic guitar"}}}},\n'
             f' "notes":{{"works_at_night":{{"value":"usually active late at night"}}}}}}\n\n'
-            f"Conversation:\n{combined}\n\nJSON:",
-            system="Return ONLY valid JSON. No markdown, no explanation, no extra text.",
+            f"Dialogue Content:\n{combined}\n\nJSON:",
+            system="Return ONLY a valid JSON object. Do not include markdown code fences, do not use backticks, and provide no explanations.",
             max_tokens=1024,
             temperature=0.2,
         )

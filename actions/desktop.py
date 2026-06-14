@@ -105,22 +105,28 @@ def _ask_gemini_for_desktop_action(task: str) -> str:
         "Linux":   "- subprocess is NOT available; use pyautogui or Path only",
     }.get(_OS, "")
 
-    prompt = f"""You are a desktop automation assistant.
-Current OS: {_OS}
-Desktop path: {desktop}
-Generate safe Python code to accomplish the task below.
-Allowed modules ONLY:
-- pyautogui (mouse, keyboard — if needed)
-- pathlib.Path (file/folder inspection only, no deletion)
-- shutil.copy2, shutil.copytree, shutil.disk_usage (NO move, NO rmtree)
-- os_path (os.path equivalent, read-only)
-- time.sleep
+    prompt = f"""You are a secure, world-class desktop automation code generator.
+Your objective is to generate safe, platform-compatible Python code to complete the requested user task.
+
+## ENVIRONMENT DETAILS
+- Operating System: {_OS}
+- Target Directory (Desktop): {desktop}
+
+## STRICT WHITE-LISTED LIBRARIES
+(Do NOT import or reference any libraries not listed here)
+- `pyautogui` (mouse operations, keyboard events, screen coordinates)
+- `pathlib.Path` (read-only file system inspection, folder checking)
+- `shutil.copy2`, `shutil.copytree`, `shutil.disk_usage` (Only copying and checking disk space is allowed)
+- `time.sleep` (For pacing events)
 {os_specific}
-Hard rules:
-- NO file deletion, NO subprocess, NO exec/eval inside the code
-- NO import statements, NO file write except explicitly requested
-- If task cannot be done safely with these tools, output exactly: UNSAFE
-Output ONLY the Python code. No explanation, no markdown, no backticks.
+
+## SAFETY & ARCHITECTURAL CONSTRAINTS
+- **No Deletion:** Absolutely NO file deletion, renaming, or directory clearing is allowed.
+- **No Execution:** Absolutely NO invocation of `subprocess`, `exec`, `eval`, or external processes is allowed.
+- **No Declarations:** Do NOT include `import` statements in your output. Assume the authorized libraries are pre-imported.
+- **Strict Fallback:** If the requested task cannot be safely executed within these bounds, output exactly: UNSAFE
+- **Format Constraint:** Return ONLY the raw Python code. Do NOT wrap in markdown backticks (no ```), and provide no explanation or commentary.
+
 Task: {task}"""
 
     try:
