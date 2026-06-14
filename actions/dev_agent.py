@@ -99,24 +99,28 @@ class RateLimitError(Exception):
 def _plan_project(description: str, language: str) -> dict:
     model = _get_model(MODEL_PLANNER)
 
-    prompt = f"""You are a senior software architect. Create a minimal, complete file plan for this project.
+    prompt = f"""You are a senior software architect creating a blueprint for a software project.
+Formulate a minimal, clean, and complete file hierarchy plan based on the specification.
 
-Language: {language}
-Description: {description}
+## PROJECT SPECIFICATION
+- Language: {language}
+- Goal/Description: {description}
 
-Return ONLY valid JSON — no markdown, no explanation:
+## OUTPUT JSON SCHEMA CONTRACT
+Return ONLY a valid JSON object. Do not include markdown code fences (no ```json), do not use backticks, and provide no explanation or commentary.
+
 {{
   "project_name": "snake_case_name",
   "entry_point": "main.py",
   "files": [
     {{
       "path": "main.py",
-      "description": "Entry point — what it does and which modules it imports",
+      "description": "Entry point: Orchestrates initialization, imports dependencies, and starts the main loop",
       "imports": ["utils.helpers", "core.engine"]
     }},
     {{
       "path": "utils/helpers.py",
-      "description": "Helper utilities — what functions it exposes",
+      "description": "Helper utilities and shared functions",
       "imports": []
     }}
   ],
@@ -124,13 +128,12 @@ Return ONLY valid JSON — no markdown, no explanation:
   "dependencies": ["requests"]
 }}
 
-Critical rules:
-1. List files in DEPENDENCY ORDER — files with no imports come first, entry point comes last.
-2. The "imports" field must list every other project module this file imports (dot-notation, e.g. "utils.helpers").
-3. Keep it minimal — only files truly needed.
-4. Entry point must be in the files list.
-5. Use relative paths only (e.g. "utils/helpers.py", not absolute paths).
-6. Standard library modules (os, sys, json, etc.) do NOT go in "dependencies".
+## ARCHITECTURAL RULES
+1. **Dependency Order Placement:** List files in absolute dependency order in the array: modules with zero project-internal imports MUST come first, and modules that import other project files come later. The entry point must be the final file.
+2. **Import Tracker:** The "imports" list must contain dot-notated relative import targets (e.g. "utils.helpers" for "utils/helpers.py").
+3. **Simplicity:** Keep files minimal and strictly relevant to the goal.
+4. **Valid Relative Paths:** Use forward slashes for relative file paths only. Never use absolute paths.
+5. **No Standard Libs:** Do not list built-in modules (such as `os`, `sys`, `json`) in the "dependencies" list.
 
 JSON:"""
 
@@ -188,28 +191,28 @@ JS/TS-specific rules:
 - Add JSDoc comments for all exported functions.
 - Handle promise rejections with try/catch in async functions."""
 
-    prompt = f"""You are a senior {language} developer writing production-quality code for a real project.
+    prompt = f"""You are a senior {language} developer writing production-grade, optimized code for a software project.
 
-Project goal: {project_description}
-
-Complete project file structure (in dependency order):
+## PROJECT OVERVIEW
+- Project Goal: {project_description}
+- Project Structure:
 {file_list}
 
-{f"Dependencies this file must import from other project files:{dependency_context}" if dependency_context else ""}
+{f"## REQUIRED EXTERNAL & INTERNAL DEPENDENCIES:{dependency_context}" if dependency_context else ""}
 
-Your task: Write the complete, working code for: {file_path}
-Purpose of this file: {file_desc}
-{f"This file imports from: {', '.join(file_imports)}" if file_imports else "This file has no project-internal imports."}
+## IMPLEMENTATION TARGET
+- Target File: {file_path}
+- File Purpose: {file_desc}
+{f"- Required Project Imports: {', '.join(file_imports)}" if file_imports else "- Project Imports: None"}
 
 {lang_rules}
 
-General rules:
-- Output ONLY raw code. Absolutely no explanation, no markdown, no triple backticks.
-- Write COMPLETE, RUNNABLE code — no placeholders, no "# TODO", no "pass" stubs.
-- Every import must either be from the standard library, listed dependencies, or the project files shown above.
-- Match import paths EXACTLY to the file paths in the project structure (e.g. if file is "utils/helpers.py", import as "from utils.helpers import ...").
-- Use proper error handling (try/except) where I/O or network calls are made.
-- The code must work correctly when the project entry point is run from the project root directory.
+## RULES
+- Output ONLY the raw code. Do NOT wrap in markdown fences (no ```), do not use backticks, and provide no conversational introductions or explanations.
+- Write COMPLETE, production-ready, executable code. No placeholders, no "# TODO" tags, and no "pass" statements.
+- Ensure all import statements match the project file hierarchy exactly (e.g., if a file is "utils/helpers.py", import it as "from utils.helpers import ...").
+- Implement robust error handling (try-except blocks) for disk I/O, network requests, or parsing operations.
+- The file must execute correctly when invoked from the project root directory.
 
 Code for {file_path}:"""
 
@@ -383,31 +386,31 @@ def _fix_files(
             error_line and fix_path == error_file
         ) else ""
 
-        prompt = f"""You are an expert {language} debugger. Fix the broken file below.
+        prompt = f"""You are a senior {language} software engineer specializing in diagnostic bug-fixing.
+Diagnose and correct the broken target file using the provided failure context and related codebases.
 
-Project goal: {project_description}
-
-All project files:
-{chr(10).join(f"  - {f['path']}: {f.get('description', '')}" for f in all_files)}
-
-Other files for context (read-only — fix only the target file):
-{other_ctx[:3500]}
-
-File to fix: {fix_path}{line_hint}
-Error type: {error_type}
-
-Error output:
+## FAILURE CONTEXT
+- Project Goal: {project_description}
+- File to Fix: {fix_path}{line_hint}
+- Error Classification: {error_type}
+- Diagnostic Logs / Traceback:
 {error_output[:2500]}
 
-Current (broken) code:
+## CODE ENVIRONMENT
+- Complete File Plan:
+{chr(10).join(f"  - {f['path']}: {f.get('description', '')}" for f in all_files)}
+
+- Context Files (Read-Only reference - do not modify):
+{other_ctx[:3500]}
+
+- Current Target Code (Broken):
 {current_code}
 
-Rules:
-- Output ONLY the complete fixed code. No explanation, no markdown, no backticks.
-- Fix ALL errors visible in the error output.
-- Keep all existing correct logic — do not remove working features.
-- Ensure import paths match the actual project file structure exactly.
-- Do NOT introduce new bugs or remove error handling.
+## FIX RULES
+- Output ONLY the complete, corrected raw code. Do NOT wrap in markdown fences, do not use backticks, and provide no explanation.
+- Resolve all errors, exceptions, and logical bugs identified in the traceback logs.
+- Retain all other correct and functional logic. Do not remove working features.
+- Ensure all import paths align exactly with the project file structure.
 
 Fixed code for {fix_path}:"""
 

@@ -59,10 +59,11 @@ def _parse_date(raw: str) -> str:
     try:
         from or_client import client
         result = client.chat(
-            f"Today is {today.strftime('%Y-%m-%d')}. "
-            f"Convert this date expression to YYYY-MM-DD: '{raw}'. "
-            f"Return ONLY the date string, nothing else.",
-            system="You are a date converter. Return only the YYYY-MM-DD string."
+            f"Current Date: {today.strftime('%Y-%m-%d')}. "
+            f"Target Expression: '{raw}'. "
+            f"Extract and format this target date as YYYY-MM-DD. "
+            f"Return ONLY the formatted date string.",
+            system="You are a professional date parser. Return ONLY a YYYY-MM-DD formatted string with no explanations or other characters."
         )
         result = result.strip()
         if re.match(r"\d{4}-\d{2}-\d{2}", result):
@@ -146,12 +147,15 @@ def _parse_flights_with_gemini(
     from or_client import client
 
     prompt = (
-        f"Extract flight options from {origin} to {destination} on {date} "
-        f"from this Google Flights page text:\n\n{raw_text[:12000]}\n\n"
-        f"Return a JSON array of up to 5 flights:\n"
-        f'[{{"airline":"...","departure":"HH:MM","arrival":"HH:MM",'
-        f'"duration":"Xh Ym","stops":0,"price":"...","currency":"USD"}}]\n'
-        f"If no flights found, return: []"
+        f"Extract a structured schedule of flight options from {origin} to {destination} on {date} "
+        f"using the raw text parsed from the Google Flights page below.\n\n"
+        f"## RAW FLIGHTS DATA (TRUNCATED):\n{raw_text[:12000]}\n\n"
+        f"## OUTPUT JSON SCHEMA CONTRACT\n"
+        f"Return ONLY a JSON array of up to 5 flight options. No markdown code fences, no extra text.\n"
+        f'JSON schema:\n'
+        f'[{{"airline":"Airline Name","departure":"HH:MM","arrival":"HH:MM",'
+        f'"duration":"Xh Ym","stops":0,"price":"Price Amount","currency":"USD"}}]\n\n'
+        f"If no flights are found in the text, return exactly: []"
     )
 
     try:

@@ -50,12 +50,12 @@ def _run_generated_code(description: str, speak: Callable | None = None) -> str:
     model = genai.GenerativeModel(
         model_name="gemini-2.5-flash",
         system_instruction=(
-            "You are an expert Python developer. "
-            "Write clean, complete, working Python code. "
-            "Use standard library + common packages. "
-            "Install missing packages with subprocess + pip if needed. "
-            "Return ONLY the Python code. No explanation, no markdown, no backticks.\n\n"
-            f"SYSTEM PATHS:\n"
+            "You are a Senior Python Developer. "
+            "Write highly clean, robust, and functional Python code. "
+            "Utilize the standard library and standard external packages. "
+            "Proactively handle dependencies (use subprocess to pip install missing packages if absolutely necessary). "
+            "Return ONLY executable Python code. No markdown code blocks, no backticks, and no explanation.\n\n"
+            f"SYSTEM PATHS FOR USE:\n"
             f"  Desktop   = r'{desktop}'\n"
             f"  Downloads = r'{downloads}'\n"
             f"  Documents = r'{documents}'\n"
@@ -133,8 +133,9 @@ def _detect_language(text: str) -> str:
     model = genai.GenerativeModel("gemini-2.5-flash-lite")
     try:
         response = model.generate_content(
-            f"What language is this text written in? "
-            f"Reply with ONLY the language name in English (e.g. Turkish, English, French).\n\n"
+            "Identify the primary language of the following text. "
+            "Respond ONLY with the name of the language in English (e.g., 'Turkish', 'English', 'French'). "
+            "Do not include any explanation or extra characters.\n\n"
             f"Text: {text[:200]}"
         )
         return response.text.strip()
@@ -154,13 +155,12 @@ def _translate_to_goal_language(content: str, goal: str) -> str:
         print(f"[Executor] 🌐 Translating to: {target_lang}")
 
         prompt = (
-            f"You are a professional translator. "
-            f"Translate the following text into {target_lang}.\n"
-            f"IMPORTANT:\n"
-            f"- Translate EVERYTHING, leave nothing in English\n"
-            f"- Keep all facts, numbers, and data intact\n"
-            f"- Keep the structure and formatting\n"
-            f"- Output ONLY the translated text, nothing else\n\n"
+            f"You are a professional, high-fidelity translator. "
+            f"Translate the provided text into {target_lang}.\n\n"
+            f"CRITICAL REQUIREMENT:\n"
+            f"- Translate all content, leaving nothing in English unless it is a proper noun or code/variable name.\n"
+            f"- Retain all facts, digits, structural markers, and punctuation formatting exactly.\n"
+            f"- Return ONLY the translated target text. No commentary, no introductions, and no markdown formatting.\n\n"
             f"Text to translate:\n{content[:4000]}"
         )
         response = model.generate_content(prompt)
@@ -386,10 +386,10 @@ class AgentExecutor:
             model     = genai.GenerativeModel(model_name="gemini-2.5-flash-lite")
             steps_str = "\n".join(f"- {s.get('description', '')}" for s in completed_steps)
             prompt    = (
-                f'User goal: "{goal}"\n'
-                f"Completed steps:\n{steps_str}\n\n"
-                "Write a single natural sentence summarizing what was accomplished. "
-                "Address the user as 'sir'. Be direct and positive."
+                f'User Goal: "{goal}"\n'
+                f"Executed Steps:\n{steps_str}\n\n"
+                "Write a single, polished, natural sentence in the language of the goal summarizing what was accomplished. "
+                "Address the user respectfully as 'sir'. Be direct, concise, and professional."
             )
             response = model.generate_content(prompt)
             summary  = response.text.strip()
