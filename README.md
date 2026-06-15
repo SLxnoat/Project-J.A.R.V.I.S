@@ -1,69 +1,98 @@
-# J.A.R.V.I.S — MARK XXXIX
+# J.A.R.V.I.S — MARK XXXIX (v2.0)
 
 > **Just A Rather Very Intelligent System**  
-> *The Last Monolithic Architecture Before the Agentic Evolution*
+> *The Last Monolithic Architecture Before the Agentic Evolution*  
+> **Version 2.0** | **Developer: Charuka Mayura Bandara**  
+> *Forked from [FatihMakes](https://github.com/FatihMakes)*
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-[![Status](https://img.shields.io/badge/status-migration--ready-orange.svg)](#migration-roadmap)
+[![Version](https://img.shields.io/badge/version-2.0-green.svg)](https://github.com/SLxnoat/Project-J.A.R.V.I.S)
+[![Status](https://img.shields.io/badge/status-production-orange.svg)](#status)
+
+---
+
+## 📋 Table of Contents
+- [Executive Summary](#executive-summary)
+- [System Architecture](#system-architecture)
+- [Key Capabilities](#key-capabilities)
+- [Installation & Setup](#installation--setup)
+- [Configuration](#configuration)
+- [Memory & Self-Learning Flow](#memory--self-learning-flow)
+- [Migration Roadmap](#migration-roadmap)
+- [Project Structure](#project-structure)
+- [Development](#development)
+- [Troubleshooting](#troubleshooting)
+- [Contributing](#contributing)
+- [License](#license)
+- [Acknowledgments](#acknowledgments)
 
 ---
 
 ## Executive Summary
 
-JARVIS Mark XXXIX represents the culmination of a decade of evolution in personal AI assistant technology — a **monolithic-threaded architecture** engineered for reliability, performance, and direct system control. This final iteration before our strategic migration to LangGraph-based multi-agent orchestration delivers:
+JARVIS Mark XXXIX v2.0 represents the culmination of a decade of evolution in personal AI assistant technology — a **monolithic-threaded architecture** engineered for reliability, performance, and direct system control. This iteration delivers significant improvements over the original, including enhanced memory flow, self-learning capabilities, and robust error recovery.
 
-- **17+ specialized action modules** for complete Windows system automation
-- **Hybrid memory system** combining SQLite for short-term context with ChromaDB for long-term semantic recall
-- **Real-time audio streaming** with Playwright-powered web scraping
-- **Screen and camera vision** with integrated Google Gen AI
-- **Multi-step task planning** with autonomous error recovery
+### v2.0 Improvements
 
-> **Note**: This is the last iteration of our monolithic architecture. JARVIS is currently in a **migration-readiness state**, with all components prepared for our transition to a LangGraph-driven Multi-Agent Agentic AI framework. See the [Migration Roadmap](#migration-roadmap) for details.
+| Feature | v1.0 | v2.0 |
+|---------|------|------|
+| Memory Flow | Basic RAG | **Advanced RAG with auto-consolidation** |
+| Self-Learning | No | **LangGraph-based Reflexion cycle** |
+| Embedding Model | text-embedding-004 (deprecated) | **gemini-embedding-001** |
+| API Client | google.generativeai | **google.genai SDK (v1.0+)** |
+| Error Recovery | Manual | **Autonomous with heuristic fallback** |
+
+> **Note**: This is the last iteration of our monolithic architecture. JARVIS is currently in a **migration-readiness state**, with all components prepared for our transition to a LangGraph-driven Multi-Agent Agentic AI framework.
 
 ---
 
-## System Architecture
+## 🏗️ System Architecture
 
 ### Overview
 
-JARVIS Mark XXXIX operates on a **hybrid monolithic-threaded architecture** — a single-threaded event loop with asynchronous capabilities, thread-safe queue management, and synchronous tool execution.
+JARVIS Mark XXXIX v2.0 operates on a **hybrid monolithic-threaded architecture** — a single-threaded event loop with asynchronous capabilities, thread-safe queue management, and synchronous tool execution.
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────────┐
-│                         JARVIS ARCHITECTURE                                  │
+│                         JARVIS ARCHITECTURE v2.0                             │
 ├──────────────────────────────────────────────────────────────────────────────┤
-│                                                                              │
 │  ┌─────────────────────────────────────────────────────────────────────────┐ │
-│  │                         USER INTERFACE LAYER                            │ │
-│  │  ┌──────────────────────┐  ┌──────────────────────┐  ┌────────────────┐ │ │
-│  │  │   PyQt6 HUD Canvas   │  │  System Metrics      │  │  File Drop   │ │ │
-│  │  │   (Visual Feedback)  │  │  (CPU/MEM/GPU/NET)   │  │  Zone        │ │ │
-│  │  └──────────┬───────────┘  └──────────┬───────────┘  └───────┬────────┘ │ │
-│  └─────────────┼──────────────────────────┼──────────────────────┼───────────┘  │
-│                 │                          │                      │             │
-│                 ▼                          ▼                      ▼             │
+│  │                   USER INTERFACE LAYER (PyQt6 HUD)                      │ │
+│  │  ┌──────────────┐ ┌──────────────┐ ┌──────────────┐ ┌──────────────┐   │ │
+│  │  │   HUD Canvas │ │  Metrics     │ │ File Drop    │ │  Status      │   │ │
+│  │  │   (Visual)   │ │  (System)    │ │  Zone        │ │  Indicator   │   │ │
+│  │  └───────┬──────┘ └───────┬──────┘ └───────┬──────┘ └───────┬──────┘   │ │
+│  └───────────┼────────────────┼────────────────┼────────────────┼───────────┘ │
+│              │                │                │                │              │
+│              ▼                ▼                ▼                ▼              │
 │  ┌─────────────────────────────────────────────────────────────────────────┐ │
-│  │                         CORE ENGINE LAYER                               │ │
-│  │  ┌──────────────────────┐  ┌──────────────────────┐  ┌────────────────┐ │ │
-│  │  │   Audio Stream       │  │   Text Input Handler │  │  File Loader   │ │ │
-│  │  │   Queue Management   │  │   on_text_command    │  │   Manager      │ │ │
-│  │  └──────────┬───────────┘  └──────────┬───────────┘  └───────┬────────┘ │ │
-│  └─────────────┼──────────────────────────┼──────────────────────┼───────────┘  │
-│                 │                          │                      │             │
-│                 ▼                          ▼                      ▼             │
+│  │                    CORE ENGINE LAYER                                     │ │
+│  │  ┌──────────────┐ ┌──────────────┐ ┌──────────────┐ ┌──────────────┐   │ │
+│  │  │ Audio Queue  │ │ Text Input   │ │ File Loader  │ │ Event Loop   │   │ │
+│  │  │ Management   │ │ Handler      │ │ Manager      │ │ (Async)      │   │ │
+│  │  └───────┬──────┘ └───────┬──────┘ └───────┬──────┘ └───────┬──────┘   │ │
+│  └───────────┼────────────────┼────────────────┼────────────────┼───────────┘ │
+│              │                │                │                │              │
+│              ▼                ▼                ▼                ▼              │
 │  ┌─────────────────────────────────────────────────────────────────────────┐ │
-│  │                      AGENTIC PROCESSING LAYER                           │ │
+│  │                    AGENTIC PROCESSING LAYER                              │ │
 │  │  ┌───────────────────────────────────────────────────────────────────┐  │ │
-│  │  │   JarvisRAGProcessor (memory/rag_processor.py)                   │  │ │
+│  │  │   JarvisRAGProcessor v2                                           │  │ │
 │  │  │   - Short-term: SQLite conversation history                     │  │ │
 │  │  │   - Long-term: ChromaDB semantic memory                         │  │ │
-│  │  │   - Auto-memory extraction & consolidation                      │  │ │
+│  │  │   - Auto-memory extraction & consolidation (NEW)                │  │ │
+│  │  │   - Heuristic fallback for or_client (NEW)                      │  │ │
+│  │  └───────────────────────────────────────────────────────────────────┘  │ │
+│  │  ┌───────────────────────────────────────────────────────────────────┐  │ │
+│  │  │   SelfLearningEngine (NEW)                                        │  │ │
+│  │  │   - Generator → Executor → Critic → Router                       │  │ │
+│  │  │   - Reflexion cycles for autonomous code correction             │  │ │
 │  │  └───────────────────────────────────────────────────────────────────┘  │ │
 │  └─────────────────────────────────────────────────────────────────────────┘ │
 │                                                                              │
 │                 ┌───────────────────────┐                                    │
-│                 │       ROUTER          │                                    │
+│                 │       ROUTER v2       │                                    │
 │                 └──────────┬────────────┘                                    │
 │                            ▼                                                 │
 │  ┌─────────────────────────────────────────────────────────────────────────┐ │
@@ -73,15 +102,10 @@ JARVIS Mark XXXIX operates on a **hybrid monolithic-threaded architecture** — 
 │  │  │         │ │         │ │ control │ │ troller │ │  (camera+screen) │   │ │
 │  │  └─────────┘ └─────────┘ └─────────┘ └─────────┘ └──────────────────┘   │ │
 │  │  ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌──────────────────┐   │ │
-│  │  │computer │ │computer │ │ game_up │ │ flight_ │ │  code_helper     │   │ │
-│  │  │ control │ │ settings│ │ dated   │ │ finder  │ │  dev_agent       │   │ │
-│  │  └─────────┘ └─────────┘ └─────────┘ └─────────┘ └──────────────────┘   │ │
-│  │  ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌──────────────────┐   │ │
-│  │  │ send_msg│ │ reminder│ │youtube  │ │ desktop │ │  file_processor  │   │ │
-│  │  │         │ │         │ │ video   │ │ control │ │                │   │ │
+│  │  │computer │ │computer │ │ game_up │ │ flight_ │ │  code_helper v2  │   │ │
+│  │  │ control │ │ settings│ │ dated   │ │ finder  │ │  (Self-Learning) │   │ │
 │  │  └─────────┘ └─────────┘ └─────────┘ └─────────┘ └──────────────────┘   │ │
 │  └─────────────────────────────────────────────────────────────────────────┘ │
-│                                                                              │
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -90,11 +114,11 @@ JARVIS Mark XXXIX operates on a **hybrid monolithic-threaded architecture** — 
 | Layer | Components | Responsibility |
 |-------|------------|----------------|
 | **UI Layer** | `ui.py` (1,530 lines) | PyQt6 HUD, metrics display, file drop zones |
-| **Core Engine** | `main.py` (942 lines) | Event loop, audio queues, tool routing |
-| **Processing** | `memory/rag_processor.py` | RAG pipeline, conversation history, auto-memory |
+| **Core Engine** | `main.py` (1,120 lines) | Event loop, audio queues, tool routing |
+| **Processing** | `memory/rag_processor.py` | RAG pipeline, auto-memory, conversation history |
+| **Self-Learning** | `agent/self_learning_engine.py` | Reflexion cycles, code generation, error recovery |
 | **Planning** | `agent/planner.py` | Goal decomposition into tool steps |
 | **Execution** | `agent/executor.py` | Plan execution, retry logic, error recovery |
-| **Task Queue** | `agent/task_queue.py` | Priority scheduling, concurrent execution |
 | **Error Handling** | `agent/error_handler.py` | Recovery decisions, replanning suggestions |
 | **Action Modules** | 17 modules in `actions/` | System control, web automation, file ops |
 
@@ -104,17 +128,19 @@ JARVIS Mark XXXIX operates on a **hybrid monolithic-threaded architecture** — 
 |-----------|------------|---------|
 | Core Language | Python | 3.10+ |
 | UI Framework | PyQt6 | 6.5+ |
-| LLM SDK | Google Gen AI | v1.0+ |
+| LLM SDK | Google Gen AI | v1.0+ (Modern) |
+| Legacy SDK | google.generativeai | 0.x+ (Fallback) |
 | Vector DB | ChromaDB | 0.4+ |
 | Short-term Memory | SQLite | Built-in |
 | Audio Processing | SoundDevice | 0.4+ |
 | Web Automation | Playwright | 1.40+ |
 | Screen Capture | mss | 6.1+ |
 | Computer Control | pyautogui | 0.9+ |
+| Multi-Agent | LangGraph | 0.1+ |
 
 ---
 
-## Key Capabilities
+## 🎯 Key Capabilities
 
 ### 1. Web & Information Access
 
@@ -174,40 +200,43 @@ JARVIS Mark XXXIX operates on a **hybrid monolithic-threaded architecture** — 
 - Scheduled task automation
 - File system management
 - Gaming ecosystem management
-- Developer productivity助手
+- Developer productivity assistant
 
-### 5. Advanced AI Operations
+### 5. Advanced AI Operations (v2.0)
 
 | Module | Lines | Capabilities |
 |--------|-------|--------------|
 | `dev_agent.py` | 596 | Agent task delegation and orchestration |
 | `code_helper.py` | 582 | Code generation, explanation, debugging |
-| `agent/planner.py` | 240 | Goal decomposition, step planning |
-| `agent/executor.py` | 400 | Plan execution, retries, error recovery |
-| `agent/error_handler.py` | 196 | Error analysis, recovery suggestions |
+| `self_learning_engine.py` | 810 | Reflexion cycles, autonomous code correction |
+| `planner.py` | 240 | Goal decomposition, step planning |
+| `executor.py` | 400 | Plan execution, retries, error recovery |
+| `error_handler.py` | 196 | Error analysis, recovery suggestions |
 
-**Use Cases:**
+**Use Cases (v2.0):**
 - Multi-step task orchestration
-- Autonomous error recovery
-- Code analysis and generation
+- **Autonomous error recovery with reflexion**
+- **Self-correcting code generation**
+- **Memory extraction with heuristic fallback**
 - Goal-oriented task execution
 
 ---
 
-## Installation & Setup
+## 🚀 Installation & Setup
 
 ### Prerequisites
 
 - **Python**: 3.10 or higher
 - **Operating System**: Windows 10/11 (primary), Linux (partial support), macOS (limited)
 - **Hardware**: Minimum 4GB RAM, modern CPU
+- **API Keys**: Gemini API, OpenRouter API (for advanced features)
 
 ### Quick Start
 
 ```bash
 # Clone the repository
-git clone https://github.com/your-org/jarvis.git
-cd jarvis
+git clone https://github.com/SLxnoat/Project-J.A.R.V.I.S.git
+cd Project-J.A.R.V.I.S
 
 # Create and activate virtual environment
 python -m venv jarvis-env
@@ -239,19 +268,22 @@ python main.py
 | `opencv-python` | Image processing | 4.8+ |
 | `mss` | Screen capture | 6.1+ |
 
-### Docker Support (Beta)
+### Post-Installation Setup
+
+After installing dependencies, run:
 
 ```bash
-docker build -t jarvis:latest .
-docker run -it --rm \
-  -v $PWD/config:/app/config \
-  -v $PWD/jarvis_memory:/app/jarvis_memory \
-  jarvis:latest
+# Install Playwright browsers
+playwright install chromium
+playwright install-deps
+
+# Verify installation
+python -c "from memory.memory_manager import jarvis_memory; print('JARVIS Ready!')"
 ```
 
 ---
 
-## Configuration
+## ⚙️ Configuration
 
 ### API Keys (`config/api_keys.json`)
 
@@ -259,7 +291,7 @@ docker run -it --rm \
 {
   "gemini_api_key": "AIza...",
   "openrouter_api_key": "sk-or-v1-...",
-  "os_system": "windows"
+  "serper_api_key": "your-serper-key-if-available"
 }
 ```
 
@@ -285,44 +317,145 @@ SERPER_API_KEY=your-serper-key-if-available
 
 ---
 
-## Migration Roadmap
+## 🧠 Memory & Self-Learning Flow (v2.0)
 
-### Current State: Monolithic Architecture
+### Memory Architecture
 
-JARVIS Mark XXXIX operates as a **single-threaded event loop** with synchronous tool execution. While robust and reliable, this architecture has limitations:
+JARVIS v2.0 implements a **dual-memory system**:
+
+1. **Short-term Memory** (SQLite)
+   - Conversation history (last 5 turns)
+   - Fast retrieval for current session
+   - Automatic persistence
+
+2. **Long-term Memory** (ChromaDB)
+   - Semantic recall using embeddings
+   - Persistent storage across sessions
+   - Auto-consolidation of important facts
+
+### Memory Flow Diagram
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                    MEMORY FLOW v2.0                                      │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                         │
+│  USER INPUT → RAG Processor → should_extract_memory()                  │
+│                                  │                                      │
+│                                  ├─ LLM (or_client)                    │
+│                                  ├─ Heuristic Fallback (NEW)           │
+│                                  ▼                                      │
+│                           extract_memory()                             │
+│                                  │                                      │
+│                                  ▼                                      │
+│                           update_memory()                              │
+│                                  │                                      │
+│                                  ├─ store_permanent_fact()             │
+│                                  ├─ embed_text()                       │
+│                                  └─ ChromaDB storage                   │
+│                                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+### Self-Learning Engine (Reflexion Cycle)
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│              SELF-LEARNING ENGINE v2.0                                   │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                         │
+│  START → node_generate_or_adapt (Generator)                            │
+│                  │                                                      │
+│                  ▼                                                      │
+│       node_execute_and_observe (Executor)                              │
+│                  │                                                      │
+│                  ▼                                                      │
+│         node_critique_and_reflect (Critic)                             │
+│                  │                                                      │
+│                  ├─ SUCCESS → END                                       │
+│                  ├─ EXHAUSTED → END                                     │
+│                  └─ REGENERATE → node_generate_or_adapt (Back-edge)    │
+│                                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+### Memory API (v2.0)
+
+```python
+from memory.memory_manager import (
+    save_interaction,
+    get_recent_context,
+    store_permanent_fact,
+    recall_relevant_facts,
+    load_memory,
+    update_memory,
+    should_extract_memory,
+    extract_memory,
+)
+
+# Save conversation turn
+save_interaction("user", "Hello, my name is John")
+save_interaction("jarvis", "Hello John, nice to meet you")
+
+# Get recent context
+context = get_recent_context(5)
+
+# Store permanent fact
+store_permanent_fact(
+    "User name is John",
+    metadata={"category": "identity", "key": "name"}
+)
+
+# Recall relevant facts
+facts = recall_relevant_facts("user name", n_results=3)
+
+# Update memory from structured data
+update_memory({
+    "identity": {"name": {"value": "John"}},
+    "preferences": {"favorite_language": {"value": "Python"}}
+})
+```
+
+---
+
+## 📋 Migration Roadmap
+
+### Current State: Monolithic Architecture v2.0
+
+JARVIS Mark XXXIX v2.0 operates as a **single-threaded event loop** with synchronous tool execution. While robust and reliable, this architecture has limitations:
 
 | Limitation | Impact |
 |------------|--------|
 | Sequential tool execution | 7.5s for 3-tool queries |
 | No autonomous replanning | User intervention required |
 | Tightly coupled modules | Difficult testing and maintenance |
-| No persistent agent state | Context lost on restart |
 
 ### Strategic Migration to LangGraph
 
-We are migrating to a **LangGraph-driven Multi-Agent Agentic AI** architecture. This represents our largest architectural evolution since JARVIS's inception.
+We are migrating to a **LangGraph-driven Multi-Agent Agentic AI** architecture.
 
 #### Migration Timeline
 
 | Phase | Duration | Status |
 |-------|----------|--------|
 | Phase 0: Foundation | Week 1 | ✅ Complete |
-| Phase 1: RAG Migration | Week 2 | In Progress |
-| Phase 2: Tool Nodes | Week 3 | Pending |
-| Phase 3: State Persistence | Week 4 | Pending |
-| Phase 4: Autonomous Features | Week 5 | Pending |
-| Phase 5: Audio Integration | Week 6 | Pending |
-| Phase 6: Final Integration | Week 7 | Pending |
+| Phase 1: RAG Migration | Week 2 | ✅ Complete |
+| Phase 2: Self-Learning Engine | Week 3 | ✅ Complete |
+| Phase 3: Memory Flow Fix | Week 4 | ✅ Complete |
+| Phase 4: Tool Nodes | Week 5 | Pending |
+| Phase 5: State Persistence | Week 6 | Pending |
+| Phase 6: Audio Integration | Week 7 | Pending |
+| Phase 7: Final Integration | Week 8 | Pending |
 
 #### Benefits of Migration
 
-| Feature | Before | After Migration |
-|---------|--------|-----------------|
+| Feature | Before v2.0 | After Migration |
+|---------|-------------|-----------------|
 | Parallel Tool Execution | Sequential | 4-7x faster |
 | Error Recovery | Manual | Autonomous |
 | State Persistence | SQLite only | MemorySaver + ChromaDB |
 | Testability | Integration tests | 80%+ node coverage |
-| Code Organization | 942-line main.py | 200-line modular nodes |
+| Code Organization | Monolithic | Modular nodes |
 
 #### New Capabilities Enabled
 
@@ -332,40 +465,9 @@ We are migrating to a **LangGraph-driven Multi-Agent Agentic AI** architecture. 
 4. **Context-Aware Interrupts**: Natural conversation turn-taking
 5. **Declarative State Machine**: Explicit state transitions
 
-### Running Both Architectures (Transition Period)
-
-During migration, both architectures run in parallel:
-
-```python
-# main.py - HybridExecutor
-from agent.executor import AgentExecutor as OldExecutor
-from langgraph.adapters import LangGraphExecutor
-
-class HybridExecutor:
-    def __init__(self):
-        self.old_executor = OldExecutor()
-        self.new_executor = LangGraphExecutor()
-        self.migration_percentage = 0.5  # 50% to new
-    
-    async def execute(self, goal: str, **kwargs):
-        if random.random() < self.migration_percentage:
-            return await self.new_executor.execute({"user_input": goal})
-        else:
-            return await self.old_executor.execute(goal, **kwargs)
-```
-
-### Completion Criteria
-
-| Criterion | Target |
-|-----------|--------|
-| System uptime during migration | 99.9% |
-| Response time improvement | >40% faster |
-| Error rate reduction | >50% fewer interruptions |
-| User satisfaction score | >4.5/5 |
-
 ---
 
-## Project Structure
+## 📁 Project Structure
 
 ```
 Project-J.A.R.V.I.S/
@@ -375,37 +477,41 @@ Project-J.A.R.V.I.S/
 │   ├── screen_processor.py    # Camera + screenshot
 │   ├── computer_control.py    # Mouse/keyboard
 │   ├── file_controller.py     # File operations
-│   └── [12 more modules]...
+│   ├── code_helper.py         # Code generation (v2.0)
+│   ├── game_updater.py        # Steam/Epic management
+│   ├── flight_finder.py       # Flight search
+│   └── [8 more modules]...
 ├── agent/
 │   ├── planner.py             # Goal decomposition
 │   ├── executor.py            # Plan execution
+│   ├── error_handler.py       # Recovery analysis
 │   ├── task_queue.py          # Priority scheduling
-│   └── error_handler.py       # Recovery analysis
+│   ├── self_learning_engine.py# Reflexion cycle (v2.0)
+│   ├── sle_integration_harness.py# Validation (v2.0)
+│   └── crew_orchestration_engine.py# CrewAI integration
 ├── config/
 │   ├── api_keys.json          # API credentials
-│   └── config.json            # System settings
+│   ├── config.json            # System settings
+│   └── loader.py              # Unified config loader (v2.0)
 ├── core/
 │   └── prompt.txt             # System instructions
 ├── memory/
-│   ├── memory_manager.py      # Short-term + long-term
-│   ├── rag_processor.py       # RAG pipeline
+│   ├── memory_manager.py      # Short-term + long-term (v2.0)
+│   ├── rag_processor.py       # RAG pipeline (v2.0)
 │   └── config_manager.py      # Config helpers
-├── future_enhancement/        # Migration documentation
-│   ├── plan.md               # Migration plan
-│   ├── tasks.md              # Implementation tasks
-│   ├── blueprint.md          # Architecture design
-│   └── verify.md             # Validation suite
 ├── jarvis_memory/             # Persistent data
 │   ├── short_term.db          # SQLite history
 │   └── chroma/                # Vector store
 ├── ui.py                      # PyQt6 interface
-├── main.py                    # Core engine (942 lines)
-└── requirements.txt           # Dependencies
+├── main.py                    # Core engine (v2.0)
+├── or_client.py               # OpenRouter client
+├── requirements.txt           # Dependencies
+└── README.md                  # This file
 ```
 
 ---
 
-## Development
+## 🔧 Development
 
 ### Running Tests
 
@@ -415,6 +521,9 @@ pytest tests/unit/ -v
 
 # Integration tests
 pytest tests/integration/ -v
+
+# Self-learning engine test
+python -m agent.sle_integration_harness
 
 # Linting
 ruff check .
@@ -446,7 +555,7 @@ python -m pdb main.py
 
 ---
 
-## Troubleshooting
+## 🐛 Troubleshooting
 
 ### Common Issues
 
@@ -457,6 +566,8 @@ python -m pdb main.py
 | `ChromaDB initialization failed` | Clear `jarvis_memory/chroma/` |
 | `Audio queue full` | Increase `CHUNK_SIZE` in config |
 | `Tool timeout` | Increase `tool_timeout` in config |
+| `Embedding model not found` | Updated to `gemini-embedding-001` in v2.0 |
+| `or_client not available` | Heuristic fallback enabled in v2.0 |
 
 ### Logging
 
@@ -468,7 +579,7 @@ python -m pdb main.py
 
 ---
 
-## Contributing
+## 🤝 Contributing
 
 We welcome contributions! Please read our [Contributing Guidelines](CONTRIBUTING.md) first.
 
@@ -488,14 +599,21 @@ We welcome contributions! Please read our [Contributing Guidelines](CONTRIBUTING
 
 ---
 
-## License
+## 📄 License
 
 This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENSE) file for details.
 
 ---
 
-## Acknowledgments
+## 🙏 Acknowledgments
 
+### Original Creator
+- **FatihMakes** - [GitHub](https://github.com/FatihMakes) - Original JARVIS project
+
+### v2.0 Developer
+- **Charuka Mayura Bandara** - Developer of JARVIS v2.0
+
+### Technologies
 - Google Gen AI team for the Gemini LLM
 - ChromaDB team for the vector database
 - Playwright team for browser automation
@@ -504,23 +622,27 @@ This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENS
 
 ---
 
-## Contact & Support
+## 📞 Contact & Support
 
-- **GitHub Issues**: [Report bugs, request features](https://github.com/your-org/jarvis/issues)
+- **GitHub Issues**: [Report bugs, request features](https://github.com/SLxnoat/Project-J.A.R.V.I.S/issues)
 - **Documentation**: [Full documentation](https://jarvis.ai/docs)
 - **Email**: support@jarvis.ai
 - **Twitter**: [@jarvis_ai](https://twitter.com/jarvis_ai)
 
 ---
 
-## Acknowledgement
+## 📌 Status
 
-> **JARVIS Mark XXXIX** - The Final Monolithic Architecture  
-> *This version represents the culmination of our monolithic architecture before our strategic migration to LangGraph. All components are prepared for the agentic evolution while maintaining full backward compatibility.*
-
----
+**Production Ready** - JARVIS Mark XXXIX v2.0 is ready for production use.
 
 <p align="center">
   <b>J.A.R.V.I.S. — Just A Rather Very Intelligent System</b><br>
   <i>Building the future of personal AI assistance, one command at a time</i>
+</p>
+
+---
+
+<p align="center">
+  <i>Version 2.0 | Developer: Charuka Mayura Bandara</i><br>
+  <i>Forked from FatihMakes | Apache License 2.0</i>
 </p>
