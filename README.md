@@ -443,7 +443,7 @@ We are migrating to a **LangGraph-driven Multi-Agent Agentic AI** architecture.
 | Phase 2: Self-Learning Engine | Week 3 | ✅ Complete |
 | Phase 3: Memory Flow Fix | Week 4 | ✅ Complete |
 | Phase 4: Tool Nodes | Week 5 | ✅ Complete |
-| Phase 5: State Persistence | Week 6 | Pending |
+| Phase 5: State Persistence | Week 6 | ✅ Complete |
 | Phase 6: Audio Integration | Week 7 | Pending |
 | Phase 7: Final Integration | Week 8 | Pending |
 
@@ -481,6 +481,112 @@ We are migrating to a **LangGraph-driven Multi-Agent Agentic AI** architecture.
 
 ---
 
+## Phase 5: State Persistence ✅ Complete
+
+**Overview:**
+Phase 5 implements comprehensive state persistence using **LangGraph's MemorySaver** for checkpoint storage and **ChromaDB** for long-term memory management. This enables agents to resume execution from any point and retain conversational context across sessions.
+
+### Key Capabilities
+
+| Feature | Description |
+|---------|-------------|
+| **Checkpoint Persistence** | Save/restore agent state using `MemorySaver` with JSON file storage |
+| **Agent Memory Storage** | ChromaDB-based long-term memory for agent experiences and learnings |
+| **Conversation History** | Persistent chat history with automatic trimming and disk storage |
+| **Error Recovery** | Graceful degradation when ChromaDB or LangGraph unavailable |
+| **Thread Safety** | Lock-protected concurrent access to shared state |
+
+### Architecture
+
+```
+StatePersistenceManager
+├── Checkpoint Management (MemorySaver + JSON files)
+│   ├── save_checkpoint()
+│   ├── load_checkpoint()
+│   └── list_checkpoints()
+├── Agent Memory (ChromaDB)
+│   ├── save_agent_memory()
+│   ├── recall_agent_memories()
+│   └── get_memories_by_agent()
+├── Conversation History
+│   ├── add_conversation_turn()
+│   ├── get_conversation_history()
+│   └── save_conversation_history()
+└── LangGraphCheckpointer
+    └── get()/put() for StateGraph config
+```
+
+### Files
+
+| File | Purpose |
+|------|---------|
+| `agent/state_persistence.py` | Core persistence manager (800+ lines) |
+| `tests/test_state_persistence.py` | 13 test cases covering all components |
+
+### API Reference
+
+#### StatePersistenceManager
+
+```python
+class StatePersistenceManager:
+    def save_checkpoint(checkpoint_id, state, metadata) -> str
+    def load_checkpoint(checkpoint_id) -> Optional[Dict]
+    def list_checkpoints() -> List[str]
+    def save_agent_memory(agent_id, memory_type, content, metadata) -> str
+    def recall_agent_memories(agent_id, memory_type, query, n_results) -> List[Dict]
+    def add_conversation_turn(user_id, user_message, agent_message, context)
+    def get_conversation_history(user_id, n_turns) -> List[Dict]
+    def save_conversation_history(user_id) -> bool
+```
+
+#### EnhancedToolNodesArchitecture
+
+Extends `ToolNodesArchitecture` with:
+- `enable_persistence=True` for checkpointing
+- `resume_execution(checkpoint_id)` to restart from saved state
+- Automatic checkpoint creation during execution
+
+### Storage Locations
+
+```
+jarvis_memory/
+├── state_persistence/
+│   ├── checkpoints/          # JSON checkpoint files
+│   │   ├── checkpoint_*.json
+│   │   └── full_workflow_test.json
+│   └── agent_memories/       # ChromaDB data
+│       └── chroma/
+└── chroma/                   # Vector embeddings
+```
+
+### Testing
+
+All 13 tests pass successfully:
+
+```bash
+python tests/test_state_persistence.py
+# Result: 13 passed in ~13 seconds
+```
+
+**Test Coverage:**
+- Directory management and initialization
+- Checkpoint save/load operations
+- Agent memory save/recall
+- Conversation history management
+- LangGraph checkpointer integration
+- EnhancedToolNodesArchitecture creation and execution
+
+**Phase 5 Implementation Details:**
+
+| Component | Purpose |
+|-----------|---------|
+| `state_persistence.py` | StatePersistenceManager with MemorySaver + ChromaDB |
+| `LangGraphCheckpointer` | Wrapper for MemorySaver checkpoint operations |
+| `EnhancedToolNodesArchitecture` | ToolNodes with persistence capabilities |
+| `StatePersistenceFactory` | Convenience factory for quick setup |
+
+---
+
 ## 📁 Project Structure
 
 ```
@@ -503,7 +609,8 @@ Project-J.A.R.V.I.S/
 │   ├── self_learning_engine.py# Reflexion cycle (v2.0)
 │   ├── sle_integration_harness.py# Validation (v2.0)
 │   ├── crew_orchestration_engine.py# CrewAI integration
-│   └── tool_nodes.py          # LangGraph nodes (v2.1 - Phase 4)
+│   ├── tool_nodes.py          # LangGraph nodes (v2.1 - Phase 4)
+│   └── state_persistence.py   # State persistence (v2.1 - Phase 5)
 ├── config/
 │   ├── api_keys.json          # API credentials
 │   ├── config.json            # System settings
