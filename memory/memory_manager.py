@@ -47,7 +47,7 @@ SHORT_TERM_DB_PATH = MEMORY_DIR / "short_term.db"
 # subdirectory avoids this permanently without deleting existing data.
 CHROMA_STORE_DIR = MEMORY_DIR / "chroma_store"
 LONG_TERM_COLLECTION_NAME = "jarvis_long_term"
-EMBEDDING_MODEL = "text-embedding-004"
+EMBEDDING_MODEL = "models/gemini-embedding-001"
 
 
 def _get_env_api_key(key_name: str) -> str | None:
@@ -592,11 +592,62 @@ def should_extract_memory(user_text: str, jarvis_text: str, api_key: str = "") -
             max_tokens=5,
             temperature=0.0,
         )
-        return "YES" in result.upper()
+        result_upper = result.upper().strip()
+        # Handle various LLM response formats
+        if "YES" in result_upper:
+            return True
+        if result_upper.startswith("NO") or "NO," in result_upper or result_upper == "NO":
+            return False
+        # If response is ambiguous, fall back to heuristic
+        print(f"[Jarvis Memory] [INFO] LLM response ambiguous ({result[:50]}), using heuristic fallback")
+        return _should_extract_memory_heuristic(user_text, jarvis_text)
 
+    except ImportError:
+        # or_client not available - fallback to simple heuristic
+        print("[Jarvis Memory] [INFO] or_client not available - using heuristic fallback")  # Jarvis: using simplified memory check
+        return _should_extract_memory_heuristic(user_text, jarvis_text)
     except Exception as exc:
         print(f"[Jarvis Memory] [WARN] Stage1 check failed: {exc}")  # Jarvis: memory relevance detection failed
-        return False
+        return _should_extract_memory_heuristic(user_text, jarvis_text)
+
+
+def _should_extract_memory_heuristic(user_text: str, jarvis_text: str) -> bool:
+    """
+    Fallback heuristic for memory extraction when or_client is not available.
+    Uses simple keyword matching to determine if a conversation contains
+    long-term memorable facts.
+    """
+    # Keywords indicating personal information that should be remembered
+    identity_keywords = ["name", "i'm", "i am", "call me", "my name", "i'm called"]
+    preference_keywords = ["like", "love", "prefer", "favorite", "hate", "enjoy", "don't like"]
+    project_keywords = ["working on", "building", "creating", "developing", "project", "code"]
+    relationship_keywords = ["friend", "family", "mother", "father", "sister", "brother", "wife", "husband", "girlfriend", "boyfriend"]
+    wish_keywords = ["want", "wish", "hope", "dream", "plan", "visit", "travel to", "buy"]
+
+    combined_lower = (user_text + " " + jarvis_text).lower()
+
+    # Check for identity indicators
+    if any(kw in combined_lower for kw in identity_keywords):
+        return True
+
+    # Check for preference indicators
+    if any(kw in combined_lower for kw in preference_keywords):
+        return True
+
+    # Check for project/work indicators
+    if any(kw in combined_lower for kw in project_keywords):
+        return True
+
+    # Check for relationship indicators
+    if any(kw in combined_lower for kw in relationship_keywords):
+        return True
+
+    # Check for wish/planning indicators
+    if any(kw in combined_lower for kw in wish_keywords):
+        return True
+
+    # Default: don't extract if no clear signals
+    return False
 
 
 def extract_memory(user_text: str, jarvis_text: str, api_key: str = "") -> dict:
@@ -641,6 +692,9 @@ def extract_memory(user_text: str, jarvis_text: str, api_key: str = "") -> dict:
 
         return json.loads(clean)
 
+    except ImportError:
+        # or_client not available - or heuristic already rejected, return empty
+        return {}
     except json.JSONDecodeError:
         return {}
     except Exception as exc:
