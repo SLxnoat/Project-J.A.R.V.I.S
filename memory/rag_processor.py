@@ -232,9 +232,11 @@ class JarvisRAGProcessor:
         try:
             should_save = memory_module.should_extract_memory(user_text, jarvis_text, self.api_key or "")
             if should_save:
-                self.memory.store_permanent_fact(
-                    user_text,
-                    metadata={"source": "auto_memory_consolidation"},
-                )
+                extracted = memory_module.extract_memory(user_text, jarvis_text, self.api_key or "")
+                if extracted:
+                    self.memory.update_memory(extracted)
+                    # Use ASCII-safe print
+                    import sys
+                    print(f"[Jarvis RAG] [OK] Auto-memory consolidation: {list(extracted.keys())}")
         except Exception as exc:
-            print(f"[Jarvis RAG] ⚠️ Auto-memory consolidation failed: {exc}")  # Sir, I could not store the new fact
+            print(f"[Jarvis RAG] [WARN] Auto-memory consolidation failed: {exc}")

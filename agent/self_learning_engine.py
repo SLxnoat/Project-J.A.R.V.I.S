@@ -308,9 +308,15 @@ class SelfLearningEngine:
         self._api_key: str = _load_gemini_api_key()
 
         # Lazy import to avoid circular deps with monolithic main.py
-        import google.generativeai as _genai
-        _genai.configure(api_key=self._api_key)
-        self._genai = _genai
+        try:
+            from google import genai
+            self._genai_client = genai.Client(api_key=self._api_key)
+            self._genai = None  # Modern SDK doesn't need configure
+        except ImportError:
+            import google.generativeai as _genai
+            _genai.configure(api_key=self._api_key)
+            self._genai = _genai
+            self._genai_client = None
 
         if SelfLearningEngine._compiled_graph is None:
             SelfLearningEngine._compiled_graph = self._build_graph()
@@ -413,16 +419,28 @@ class SelfLearningEngine:
         )
 
         try:
-            model = self._genai.GenerativeModel(
-                model_name         = _GENERATOR_MODEL,
-                system_instruction = _GENERATOR_SYSTEM,
-            )
-            loop     = asyncio.get_event_loop()
-            response = await loop.run_in_executor(
-                None,
-                lambda: model.generate_content(prompt),
-            )
-            new_code = _strip_code_fences(response.text.strip())
+            if self._genai_client is not None:
+                # Modern google-genai SDK (v1.0+)
+                model = self._genai_client.models.generate_content(
+                    model=_GENERATOR_MODEL,
+                    contents=prompt,
+                    config={
+                        "system_instruction": _GENERATOR_SYSTEM,
+                    },
+                )
+                new_code = _strip_code_fences(model.text.strip() if hasattr(model, "text") else str(model))
+            else:
+                # Legacy google.generativeai SDK
+                model = self._genai.GenerativeModel(
+                    model_name=_GENERATOR_MODEL,
+                    system_instruction=_GENERATOR_SYSTEM,
+                )
+                loop = asyncio.get_event_loop()
+                response = await loop.run_in_executor(
+                    None,
+                    lambda: model.generate_content(prompt),
+                )
+                new_code = _strip_code_fences(response.text.strip())
 
         except Exception as exc:
             log.error(f"[Generator] LLM call failed: {exc}")
@@ -641,16 +659,28 @@ class SelfLearningEngine:
 
         critique_text: str = ""
         try:
-            model = self._genai.GenerativeModel(
-                model_name         = _CRITIC_MODEL,
-                system_instruction = _CRITIC_SYSTEM,
-            )
-            loop     = asyncio.get_event_loop()
-            response = await loop.run_in_executor(
-                None,
-                lambda: model.generate_content(prompt),
-            )
-            raw_json = _strip_code_fences(response.text.strip())
+            if self._genai_client is not None:
+                # Modern google-genai SDK (v1.0+)
+                model = self._genai_client.models.generate_content(
+                    model=_CRITIC_MODEL,
+                    contents=prompt,
+                    config={
+                        "system_instruction": _CRITIC_SYSTEM,
+                    },
+                )
+                raw_json = _strip_code_fences(model.text.strip() if hasattr(model, "text") else str(model))
+            else:
+                # Legacy google.generativeai SDK
+                model = self._genai.GenerativeModel(
+                    model_name=_CRITIC_MODEL,
+                    system_instruction=_CRITIC_SYSTEM,
+                )
+                loop = asyncio.get_event_loop()
+                response = await loop.run_in_executor(
+                    None,
+                    lambda: model.generate_content(prompt),
+                )
+                raw_json = _strip_code_fences(response.text.strip())
 
             critique_data: dict[str, Any] = json.loads(raw_json)
             root_cause = critique_data.get("root_cause", "Unknown root cause.")

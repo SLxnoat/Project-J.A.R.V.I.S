@@ -58,9 +58,11 @@ def get_api_key(key_name: str) -> str | None:
     # Map environment variable names to JSON keys
     key_map = {
         "GEMINI_API_KEY": "gemini_api_key",
-        "GEMINI_API_KEY.lower()": "gemini_api_key",
+        "gemini_api_key": "gemini_api_key",
         "SERPER_API_KEY": "serper_api_key",
+        "serper_api_key": "serper_api_key",
         "OPENROUTER_API_KEY": "openrouter_api_key",
+        "openrouter_api_key": "openrouter_api_key",
     }
 
     json_key = key_map.get(key_name, key_name.lower())
@@ -88,7 +90,7 @@ def get_or_client():
     if not api_key:
         return None
     try:
-        from or_client import Client
-        return Client(api_key=api_key)
+        from or_client import OpenRouterClient
+        return OpenRouterClient()
     except ImportError:
         return None
