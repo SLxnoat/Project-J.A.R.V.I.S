@@ -625,6 +625,11 @@ class JarvisLive:
         self._speaking_lock = threading.Lock()
         self.ui.on_text_command = self._on_text_command
         self.rag_processor = rag_processor or JarvisRAGProcessor()
+        # Audio Noise Gate settings
+        self._noise_threshold = 300   # Peak amplitude threshold (0 to 32768)
+        self._hangover_frames = 20    # Keep gate open for ~1.2s after speech ends
+        self._last_speak_time = 0.0   # Timestamp when speaking ended
+        self._post_speak_cooldown = 0.4  # Cooldown period in seconds to ignore echo
         # ===== CREWAI INTEGRATION PATCH START =====
         # Lazy-initialised on first crew_complex_task call — zero startup cost.
         self._crew_engine: CrewOrchestrationEngine | None = None  # type: ignore[assignment]
@@ -651,8 +656,11 @@ class JarvisLive:
         )
 
     def set_speaking(self, value: bool):
+        import time
         with self._speaking_lock:
             self._is_speaking = value
+            if not value:
+                self._last_speak_time = time.time()
         if value:
             self.ui.set_state("SPEAKING")
         elif not self.ui.muted:
@@ -938,12 +946,29 @@ class JarvisLive:
     async def _listen_audio(self):
         print("[JARVIS] 🎤 Mic started")
         loop = asyncio.get_event_loop()
+        self._gate_open_counter = 0
 
         def callback(indata: Any, frames: Any, time: Any, status: Any) -> None:  # type: ignore[misc, type, unused-argument]
+            import time as _time
             with self._speaking_lock:
                 jarvis_speaking = self._is_speaking
-            if not jarvis_speaking and not self.ui.muted:
-                data = indata.tobytes()  # type: ignore[union-attr]
+                last_speak = self._last_speak_time
+            in_cooldown = (_time.time() - last_speak) < self._post_speak_cooldown
+            if not jarvis_speaking and not in_cooldown and not self.ui.muted:
+                import numpy as np
+                # Check peak amplitude of the input buffer (16-bit signed int)
+                peak = np.max(np.abs(indata))
+                
+                if peak >= self._noise_threshold:
+                    self._gate_open_counter = self._hangover_frames
+                else:
+                    self._gate_open_counter = max(0, self._gate_open_counter - 1)
+                
+                if self._gate_open_counter > 0:
+                    data = indata.tobytes()  # type: ignore[union-attr]
+                else:
+                    data = b'\x00' * indata.nbytes  # Send digital silence
+                
                 queue_data = {"data": data, "mime_type": "audio/pcm"}
                 try:
                     loop.call_soon_threadsafe(
