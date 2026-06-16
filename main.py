@@ -790,8 +790,22 @@ class JarvisLive:
                 result = r or "Done."
 
             elif name == "code_helper":
-                r = await loop.run_in_executor(None, lambda: code_helper(parameters=args, player=self.ui, speak=self.speak))
-                result = r or "Done."
+                action = args.get("action", "auto")
+                if action in ("run", "auto") and not args.get("file_path"):
+                    from agent.sle_integration_harness import sle_run_sync
+                    r = await loop.run_in_executor(None, lambda: sle_run_sync(
+                        task_description = args.get("description", ""),
+                        tool_name        = "code_helper",
+                        speak_callback   = self.speak,
+                    ))
+                    result = r.get("execution_output", "Done.") if r.get("is_valid") else (
+                        code_helper(parameters=args, player=self.ui, speak=self.speak) or "Done."
+                    )
+                else:
+                    r = await loop.run_in_executor(
+                        None, lambda: code_helper(parameters=args, player=self.ui, speak=self.speak)
+                    )
+                    result = r or "Done."
 
             elif name == "dev_agent":
                 r = await loop.run_in_executor(None, lambda: dev_agent(parameters=args, player=self.ui, speak=self.speak))

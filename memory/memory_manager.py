@@ -580,6 +580,94 @@ def format_memory_for_prompt(memory: dict | None) -> str:
     return ""
 
 
+def _should_extract_memory_gemini(user_text: str, jarvis_text: str, api_key: str = "") -> bool:
+    try:
+        from google import genai
+        key = api_key or _get_env_api_key("GEMINI_API_KEY")
+        if not key:
+            return False
+        
+        client = genai.Client(api_key=key)
+        combined = f"User: {user_text[:300]}\nJarvis: {jarvis_text[:1000]}"
+        prompt = (
+            f"Does the following dialogue contain any long-term memorable facts about the user?\n"
+            f"Memorable facts include: personal descriptors (identity, occupation, location), preferences/favorites, "
+            f"active projects/tasks, relationships, future plans/wishes, or habits.\n\n"
+            f"Dialogue:\n{combined}\n\n"
+            f"Reply ONLY with 'YES' if memorable facts are present, or 'NO' if the conversation is purely transactional or transient."
+        )
+        response = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=prompt,
+            config={
+                "system_instruction": "You are a binary classification filter. Respond ONLY with YES or NO.",
+                "temperature": 0.0,
+                "max_output_tokens": 5,
+            }
+        )
+        result_upper = response.text.upper().strip()
+        if "YES" in result_upper:
+            return True
+        return False
+    except Exception as exc:
+        print(f"[Jarvis Memory] [WARN] Gemini relevance check failed: {exc}")
+        return False
+
+
+def _extract_memory_gemini(user_text: str, jarvis_text: str, api_key: str = "") -> dict:
+    try:
+        from google import genai
+        key = api_key or _get_env_api_key("GEMINI_API_KEY")
+        if not key:
+            return {}
+        
+        client = genai.Client(api_key=key)
+        combined = f"User: {user_text[:600]}\nJarvis: {jarvis_text[:300]}"
+        prompt = (
+            f"Extract all long-term memorable facts from this dialogue. Supports any language inputs, but output values in English.\n"
+            f"Return ONLY a valid JSON object. Return {{}} if no relevant information is present.\n\n"
+            f"## CATEGORY GUIDE:\n"
+            f"  - identity: personal descriptors (e.g., name, age, city, occupation, nationality)\n"
+            f"  - preferences: preferred/disliked items (e.g., favorite_food, favorite_music, hobbies)\n"
+            f"  - projects: active work, software engineering, tasks, ideas in progress (e.g., mark_xxv: 'Building JARVIS AI')\n"
+            f"  - relationships: named or described acquaintances, family, friends, colleagues (e.g., colleague_bob: 'Lead dev')\n"
+            f"  - wishes: future plans, destinations to travel, items to buy, dreams\n"
+            f"  - notes: habits, daily schedule, general observations worth saving\n\n"
+            f"## EXTRACTION PROTOCOL:\n"
+            f"- Be comprehensive and liberal: capture any detail that builds personalization.\n"
+            f"- Analyze both user statements and assistant declarations.\n"
+            f"- Ignore transient tasks (weather requests, search results, immediate shell commands, etc.).\n"
+            f"- Output concise, descriptive values in English.\n\n"
+            f"## JSON CONTRACT FORMAT:\n"
+            f'{{"identity":{{"name":{{"value":"Ali"}}}},\n'
+            f' "preferences":{{"favorite_color":{{"value":"blue"}}}},\n'
+            f' "projects":{{"mark_xxv":{{"value":"JARVIS-like AI assistant"}}}},\n'
+            f' "relationships":{{"friend_yusuf":{{"value":"close friend"}}}},\n'
+            f' "wishes":{{"buy_guitar":{{"value":"wants an acoustic guitar"}}}},\n'
+            f' "notes":{{"works_at_night":{{"value":"usually active late at night"}}}}}}\n\n'
+            f"Dialogue Content:\n{combined}\n\nJSON:"
+        )
+        response = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=prompt,
+            config={
+                "system_instruction": "Return ONLY a valid JSON object. Do not include markdown code fences, do not use backticks, and provide no explanations.",
+                "temperature": 0.2,
+                "max_output_tokens": 1024,
+            }
+        )
+        clean = response.text.strip()
+        clean = re.sub(r"```(?:json)?", "", clean).strip().rstrip("`").strip()
+
+        if not clean or clean == "{}":
+            return {}
+
+        return json.loads(clean)
+    except Exception as exc:
+        print(f"[Jarvis Memory] [WARN] Gemini extraction failed: {exc}")
+        return {}
+
+
 def should_extract_memory(user_text: str, jarvis_text: str, api_key: str = "") -> bool:
     try:
         from or_client import client
@@ -602,22 +690,23 @@ def should_extract_memory(user_text: str, jarvis_text: str, api_key: str = "") -
             return True
         if result_upper.startswith("NO") or "NO," in result_upper or result_upper == "NO":
             return False
-        # If response is ambiguous, fall back to heuristic
-        print(f"[Jarvis Memory] [INFO] LLM response ambiguous ({result[:50]}), using heuristic fallback")
-        return _should_extract_memory_heuristic(user_text, jarvis_text)
+        # If response is ambiguous, fall back to Gemini
+        print(f"[Jarvis Memory] [INFO] LLM response ambiguous ({result[:50]}), trying Gemini check...")
 
-    except ImportError:
-        # or_client not available - fallback to simple heuristic
-        print("[Jarvis Memory] [INFO] or_client not available - using heuristic fallback")  # Jarvis: using simplified memory check
-        return _should_extract_memory_heuristic(user_text, jarvis_text)
     except Exception as exc:
-        print(f"[Jarvis Memory] [WARN] Stage1 check failed: {exc}")  # Jarvis: memory relevance detection failed
-        return _should_extract_memory_heuristic(user_text, jarvis_text)
+        print(f"[Jarvis Memory] [WARN] OpenRouter Stage1 check failed: {exc}, trying Gemini check...")
+
+    try:
+        return _should_extract_memory_gemini(user_text, jarvis_text, api_key)
+    except Exception as gem_exc:
+        print(f"[Jarvis Memory] [WARN] Gemini check failed: {gem_exc}, using heuristic fallback")
+
+    return _should_extract_memory_heuristic(user_text, jarvis_text)
 
 
 def _should_extract_memory_heuristic(user_text: str, jarvis_text: str) -> bool:
     """
-    Fallback heuristic for memory extraction when or_client is not available.
+    Fallback heuristic for memory extraction when both LLMs are unavailable.
     Uses simple keyword matching to determine if a conversation contains
     long-term memorable facts.
     """
@@ -696,12 +785,12 @@ def extract_memory(user_text: str, jarvis_text: str, api_key: str = "") -> dict:
 
         return json.loads(clean)
 
-    except ImportError:
-        # or_client not available - or heuristic already rejected, return empty
-        return {}
-    except json.JSONDecodeError:
-        return {}
     except Exception as exc:
-        if "429" not in str(exc):
-            print(f"[Jarvis Memory] [WARN] Extract failed: {exc}")  # Jarvis: extraction failed
-        return {}
+        print(f"[Jarvis Memory] [WARN] OpenRouter extraction failed: {exc}, trying Gemini...")
+
+    try:
+        return _extract_memory_gemini(user_text, jarvis_text, api_key)
+    except Exception as gem_exc:
+        print(f"[Jarvis Memory] [WARN] Gemini extraction failed: {gem_exc}")
+        
+    return {}

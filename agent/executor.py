@@ -240,7 +240,18 @@ def _call_tool(tool: str, parameters: dict, speak: Callable | None) -> str:
         description = parameters.get("description", "")
         if not description:
             raise ValueError("generated_code requires a 'description' parameter.")
-        return _run_generated_code(description, speak=speak)
+        from agent.sle_integration_harness import sle_run_sync
+        result = sle_run_sync(
+            task_description = description,
+            tool_name        = "generated_code",
+            speak_callback   = speak,
+        )
+        if result.get("is_valid"):
+            return result["execution_output"]
+        raise RuntimeError(
+            f"SelfLearningEngine failed after {result['retry_counter']} cycles. "
+            f"Last error: {result.get('error_payload', '')[:200]}"
+        )
 
     elif tool == "flight_finder":
         from actions.flight_finder import flight_finder
