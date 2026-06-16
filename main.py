@@ -939,7 +939,7 @@ class JarvisLive:
         print("[JARVIS] 🎤 Mic started")
         loop = asyncio.get_event_loop()
 
-        def callback(indata: Any, _status: Any) -> None:  # type: ignore[misc, type, unused-argument]
+        def callback(indata: Any, frames: Any, time: Any, status: Any) -> None:  # type: ignore[misc, type, unused-argument]
             with self._speaking_lock:
                 jarvis_speaking = self._is_speaking
             if not jarvis_speaking and not self.ui.muted:
