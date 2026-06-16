@@ -72,10 +72,10 @@ def _load_api_key() -> str:
         raise RuntimeError(f"Failed to load OpenRouter API key: {e}")
 
 TEXT_MODELS: list[str] = [
+    "meta-llama/llama-3.3-70b-instruct:free",
     "nvidia/nemotron-3-super-120b-a12b:free",
     "nousresearch/hermes-3-llama-3.1-405b:free",
     "minimax/minimax-m2.5:free",
-    "meta-llama/llama-3.3-70b-instruct:free",
     "qwen/qwen3-next-80b-a3b-instruct:free",
     "qwen/qwen3-coder:free",
     "google/gemma-4-31b-it:free",
