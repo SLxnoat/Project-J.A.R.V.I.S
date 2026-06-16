@@ -300,9 +300,13 @@ class JarvisMemory:
                 return []
 
             item_id = str(uuid4())
+            actual_metadata = dict(metadata) if metadata else {}
+            if not actual_metadata:
+                actual_metadata = {"source": "user_input"}
+
             self._chroma_collection.add(
                 documents=[text],
-                metadatas=[metadata or {}],
+                metadatas=[actual_metadata],
                 ids=[item_id],
                 embeddings=[embedding],
             )
