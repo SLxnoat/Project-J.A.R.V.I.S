@@ -82,7 +82,7 @@ def analyze_error(
     import google.generativeai as genai
 
     if attempt >= max_attempts:
-        print(f"[ErrorHandler] ⚠️ Max attempts reached for step {step.get('step')} — forcing replan")
+        print(f"[ErrorHandler] [WARN] Max attempts reached for step {step.get('step')} - forcing replan")
         return {
             "decision":      ErrorDecision.REPLAN,
             "reason":        f"Failed {attempt} times: {error[:100]}",
@@ -126,13 +126,13 @@ Attempt number: {attempt}"""
 
         if step.get("critical") and result["decision"] == ErrorDecision.SKIP:
             result["decision"]     = ErrorDecision.REPLAN
-            result["user_message"] = "This step is critical — finding alternative approach, sir."
+            result["user_message"] = "This step is critical - finding alternative approach, sir."
 
-        print(f"[ErrorHandler] Decision: {result['decision'].value} — {result.get('reason', '')}")
+        print(f"[ErrorHandler] Decision: {result['decision'].value} - {result.get('reason', '')}")
         return result
 
     except Exception as e:
-        print(f"[ErrorHandler] ⚠️ Analysis failed: {e} — defaulting to replan")
+        print(f"[ErrorHandler] [WARN] Analysis failed: {e} - defaulting to replan")
         return {
             "decision":       ErrorDecision.REPLAN,
             "reason":         str(e),
@@ -152,7 +152,7 @@ def generate_fix(step: dict, error: str, fix_suggestion: str) -> dict:
     import google.generativeai as genai
 
     genai.configure(api_key=_get_api_key())
-    model = genai.GenerativeModel(model_name="gemini-2.0-flash")
+    model = genai.GenerativeModel(model_name="gemini-2.5-flash")
 
     prompt = f"""You are an expert debugger and recovery agent. A task step has failed, and we need a revised solution.
 
@@ -188,7 +188,7 @@ Write a robust, fully working Python script that achieves the intended goal whil
         }
 
     except Exception as e:
-        print(f"[ErrorHandler] ⚠️ Fix generation failed: {e}")
+        print(f"[ErrorHandler] [WARN] Fix generation failed: {e}")
         return {
             "step":        step.get("step"),
             "tool":        "generated_code",
