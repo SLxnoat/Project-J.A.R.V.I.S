@@ -5,6 +5,7 @@ import json
 import sys
 import traceback
 from pathlib import Path
+from typing import Any
 
 # ===== WINDOWS ENCODING PATCH START =====
 # Force UTF-8 on standard streams if possible, and override builtins.print to prevent UnicodeEncodeError
