@@ -72,10 +72,10 @@ def _load_api_key() -> str:
         raise RuntimeError(f"Failed to load OpenRouter API key: {e}")
 
 TEXT_MODELS: list[str] = [
+    "meta-llama/llama-3.3-70b-instruct:free",
     "nvidia/nemotron-3-super-120b-a12b:free",
     "nousresearch/hermes-3-llama-3.1-405b:free",
     "minimax/minimax-m2.5:free",
-    "meta-llama/llama-3.3-70b-instruct:free",
     "qwen/qwen3-next-80b-a3b-instruct:free",
     "qwen/qwen3-coder:free",
     "google/gemma-4-31b-it:free",
@@ -124,8 +124,8 @@ class OpenRouterClient:
         self._headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type":  "application/json",
-            "HTTP-Referer":  "https://github.com/mark-xxv",
-            "X-Title":       "MARK XXV",
+            "HTTP-Referer":  "https://github.com/SLxnoat/Project-J.A.R.V.I.S",
+            "X-Title":       "MARK XXXIX",
         }
 
     def _is_rate_limited(self, model: str) -> bool:
@@ -237,7 +237,7 @@ class OpenRouterClient:
         self,
         prompt: str,
         system: str = (
-            "You are a component of MARK XXV, an AI assistant inspired by JARVIS. "
+            "You are a component of MARK XXXIX, an AI assistant inspired by JARVIS. "
             "Be concise, helpful, and precise."
         ),
         model: Optional[str] = None,
