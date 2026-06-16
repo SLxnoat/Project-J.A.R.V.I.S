@@ -194,27 +194,40 @@ class JarvisRAGProcessor:
     def _generate_response(self, prompt: str) -> str | None:
         """
         Generate response using the modern google-genai SDK.
+        Falls back to OpenRouter client if Gemini is rate-limited, exhausted, or unavailable.
         """
-        if self.model is None:
-            print("[Jarvis RAG] ⚠️ LLM client is unavailable.")  # Sir, I cannot generate a response without a model
-            return None
+        if self.model is not None:
+            try:
+                # Modern API call format
+                response = self.model(
+                    model=self.model_name,
+                    contents=prompt,
+                    config={
+                        "temperature": 0.7,
+                        "max_output_tokens": 1024,
+                    },
+                )
+                if response and getattr(response, "text", None):
+                    return str(response.text).strip()
+            except Exception as exc:
+                print(f"[Jarvis RAG] ⚠️ Gemini LLM generation failed: {exc}. Trying OpenRouter fallback...")
 
+        # Fallback to OpenRouter (using free models pool)
         try:
-            # Modern API call format
-            response = self.model(
-                model=self.model_name,
-                contents=prompt,
-                config={
-                    "temperature": 0.7,
-                    "max_output_tokens": 1024,
-                },
+            from or_client import client
+            print("[Jarvis RAG] 🔄 Attempting fallback using OpenRouter pool...")
+            result = client.chat(
+                prompt=prompt,
+                system=self.SYSTEM_INSTRUCTION,
+                max_tokens=1024,
+                temperature=0.7
             )
-            if not response or not getattr(response, "text", None):
-                return None
-            return str(response.text).strip()
-        except Exception as exc:
-            print(f"[Jarvis RAG] ⚠️ LLM generation failed: {exc}")  # Sir, the language model failed to respond
-            return None
+            if result:
+                return result.strip()
+        except Exception as or_exc:
+            print(f"[Jarvis RAG] ⚠️ OpenRouter fallback failed: {or_exc}")
+
+        return None
 
     def _persist_short_term_interaction(self, role: str, content: str) -> None:
         if self.memory is None:

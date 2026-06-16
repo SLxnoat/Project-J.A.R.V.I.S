@@ -643,6 +643,18 @@ class JarvisLive:
         except Exception:
             pass
 
+    def _safe_put_audio(self, queue_data):
+        if self.out_queue is None:
+            return
+        try:
+            self.out_queue.put_nowait(queue_data)
+        except asyncio.QueueFull:
+            self._drop_oldest_queue_item(self.out_queue)
+            try:
+                self.out_queue.put_nowait(queue_data)
+            except asyncio.QueueFull:
+                pass
+
     def _on_text_command(self, text: str) -> None:
         if not self._loop or not self.session:
             return
@@ -972,24 +984,11 @@ class JarvisLive:
                 queue_data = {"data": data, "mime_type": "audio/pcm"}
                 try:
                     loop.call_soon_threadsafe(
-                        # Type: ignore - out_queue is initialized in run() before this runs
-                        self.out_queue.put_nowait,  # type: ignore[union-attr]
+                        self._safe_put_audio,
                         queue_data
                     )
-                except asyncio.QueueFull:
-                    # Clear oldest frame to make space for real-time stream
-                    try:
-                        loop.call_soon_threadsafe(
-                            # Type: ignore - out_queue is initialized in run() before this runs
-                            lambda: self._drop_oldest_queue_item(self.out_queue)  # type: ignore[union-attr]
-                        )
-                        loop.call_soon_threadsafe(
-                            # Type: ignore - out_queue is initialized in run() before this runs
-                            self.out_queue.put_nowait,  # type: ignore[union-attr]
-                            queue_data
-                        )
-                    except Exception:
-                        pass  # Drop frame if queue remains full
+                except Exception:
+                    pass
 
         try:
             with sd.InputStream(
