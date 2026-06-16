@@ -124,8 +124,8 @@ class OpenRouterClient:
         self._headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type":  "application/json",
-            "HTTP-Referer":  "https://github.com/mark-xxv",
-            "X-Title":       "MARK XXV",
+            "HTTP-Referer":  "https://github.com/SLxnoat/Project-J.A.R.V.I.S",
+            "X-Title":       "MARK XXXIX",
         }
 
     def _is_rate_limited(self, model: str) -> bool:
@@ -237,7 +237,7 @@ class OpenRouterClient:
         self,
         prompt: str,
         system: str = (
-            "You are a component of MARK XXV, an AI assistant inspired by JARVIS. "
+            "You are a component of MARK XXXIX, an AI assistant inspired by JARVIS. "
             "Be concise, helpful, and precise."
         ),
         model: Optional[str] = None,
